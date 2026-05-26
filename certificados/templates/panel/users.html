@@ -1,0 +1,76 @@
+{% extends "panel/base.html" %}
+
+{% block title %}Usuarios{% endblock %}
+{% block page_title %}Usuarios{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'panel_user_create' %}" class="btn btn-primary btn-sm">+ Nuevo usuario</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Usuario</th>
+                    <th>Email</th>
+                    <th>Rol</th>
+                    <th>Fecha de registro</th>
+                    <th style="text-align:right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td><strong>{{ u.username }}</strong></td>
+                    <td>{{ u.email|default:"-" }}</td>
+                    <td>
+                        {% if u.is_superuser %}
+                            <span class="badge badge-success">Superadmin</span>
+                        {% else %}
+                            <span class="badge badge-info">Admin</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ u.date_joined|date:"d/m/Y" }}</td>
+                    <td style="text-align:right;">
+                        <div style="display:flex;gap:8px;justify-content:flex-end;">
+                            <a href="{% url 'panel_user_edit' pk=u.pk %}" class="btn btn-secondary btn-sm">Editar</a>
+                            {% if u != request.user %}
+                            <button class="btn btn-danger btn-sm" onclick="confirmDelete('{% url 'panel_user_delete' pk=u.pk %}', '{{ u.username }}')">Eliminar</button>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Delete modal -->
+<div class="modal-overlay" id="deleteModal">
+    <div class="modal">
+        <h3>Eliminar usuario</h3>
+        <p>Estas seguro que queres eliminar al usuario "<span id="deleteItemName"></span>"?</p>
+        <form method="post" id="deleteForm">
+            {% csrf_token %}
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button type="submit" class="btn btn-danger">Eliminar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function confirmDelete(url, name) {
+    document.getElementById('deleteForm').action = url;
+    document.getElementById('deleteItemName').textContent = name;
+    document.getElementById('deleteModal').classList.add('active');
+}
+function closeModal() {
+    document.getElementById('deleteModal').classList.remove('active');
+}
+</script>
+{% endblock %}

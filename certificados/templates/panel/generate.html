@@ -1,0 +1,83 @@
+{% extends "panel/base.html" %}
+
+{% block title %}Generar certificados{% endblock %}
+{% block page_title %}Generar certificados{% endblock %}
+
+{% block content %}
+{% if not events %}
+<div class="card">
+    <div class="empty-state">
+        <div class="icon">&#9888;</div>
+        <p>No hay eventos creados todavía. Crealos en la sección <strong>Eventos</strong> y sub&iacute; un template antes de poder generar certificados.</p>
+        <a href="{% url 'panel_events' %}" class="btn btn-primary">Ir a Eventos</a>
+    </div>
+</div>
+{% else %}
+
+<div class="card" style="max-width:760px;">
+    <div class="card-header">
+        <div class="card-title">Generación individual</div>
+        <span class="badge badge-info">Manual</span>
+    </div>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:20px;">
+        Generá un certificado para una persona específica. La descarga queda registrada como <strong>manual</strong> en el log.
+    </p>
+
+    <form method="post" action="{% url 'panel_generate' %}">
+        {% csrf_token %}
+        <div class="form-row">
+            <div class="form-group">
+                <label>Evento</label>
+                <select name="event" required>
+                    {% for ev in events %}
+                    <option value="{{ ev.pk }}">{{ ev.name }}{% if not ev.active %} (inactivo){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Nombre y apellido</label>
+                <input type="text" name="full_name" required maxlength="80" placeholder="Ej: Juan Perez" autocomplete="off">
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Generar y descargar</button>
+    </form>
+</div>
+
+<div class="card" style="max-width:760px;">
+    <div class="card-header">
+        <div class="card-title">Generación masiva</div>
+        <span class="badge badge-info">Manual</span>
+    </div>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:20px;">
+        Pegá una lista de nombres (uno por línea) o subí un archivo <code>.csv</code>/<code>.txt</code>. Te devuelve un ZIP con todos los certificados.
+    </p>
+
+    <form method="post" action="{% url 'panel_generate_bulk' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <div class="form-group">
+            <label>Evento</label>
+            <select name="event" required>
+                {% for ev in events %}
+                <option value="{{ ev.pk }}">{{ ev.name }}{% if not ev.active %} (inactivo){% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Pegar nombres (uno por línea)</label>
+            <textarea name="names" rows="8" placeholder="Juan Perez&#10;Maria Gomez&#10;Carlos Diaz"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>O subir archivo .csv / .txt</label>
+            <input type="file" name="names_file" accept=".csv,.txt">
+            <div class="form-help">Un nombre por línea. Máximo 500 nombres por lote. Líneas vacías y nombres de más de 80 caracteres se ignoran.</div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Generar ZIP</button>
+    </form>
+</div>
+
+{% endif %}
+{% endblock %}

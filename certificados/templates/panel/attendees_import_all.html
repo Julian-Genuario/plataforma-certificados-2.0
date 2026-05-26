@@ -1,0 +1,75 @@
+{% extends "panel/base.html" %}
+
+{% block title %}Importar inscriptos{% endblock %}
+{% block page_title %}Importar inscriptos{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'panel_attendees_all' %}" class="btn btn-secondary btn-sm">Volver a la lista</a>
+{% endblock %}
+
+{% block content %}
+{% if not events %}
+<div class="card">
+    <div class="empty-state">
+        <div class="icon">&#9888;</div>
+        <p>No hay eventos creados todavía. Crealos en la sección <strong>Eventos</strong> antes de cargar inscriptos.</p>
+        <a href="{% url 'panel_events' %}" class="btn btn-primary">Ir a Eventos</a>
+    </div>
+</div>
+{% else %}
+
+<div class="card" style="max-width:760px;">
+    <div class="card-header">
+        <div class="card-title">Importar inscriptos a un evento</div>
+        <span class="badge badge-info">CSV / XLSX / pegar</span>
+    </div>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:20px;">
+        Elegí el evento y cargá la lista. Cuando hay inscriptos cargados y el evento pide email,
+        la descarga del certificado requiere que <strong>nombre y email</strong> coincidan con uno de la lista.
+    </p>
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <div class="form-group">
+            <label>Evento</label>
+            <select name="event" required>
+                <option value="">Elegí un evento...</option>
+                {% for ev in events %}
+                <option value="{{ ev.pk }}">{{ ev.name }}{% if not ev.active %} (inactivo){% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Subir archivo (.csv o .xlsx)</label>
+            <input type="file" name="file" accept=".csv,.xlsx,.txt">
+            <div class="form-help">
+                Encabezados aceptados: <code>nombre</code>, <code>name</code>, <code>full_name</code>, <code>participante</code> | <code>email</code>, <code>e-mail</code>, <code>correo</code>. Si no hay encabezados, se toman las dos primeras columnas.
+            </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:12px;margin:20px 0;color:#9ca3af;font-size:13px;">
+            <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+            O
+            <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+        </div>
+
+        <div class="form-group">
+            <label>Pegar lista (una persona por línea: <code>nombre, email</code>)</label>
+            <textarea name="pasted_text" rows="8" placeholder="Juan Perez, juan@example.com&#10;Maria Gomez, maria@example.com"></textarea>
+            <div class="form-help">Separadores soportados: coma, punto y coma o tabulación.</div>
+        </div>
+
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                <input type="checkbox" name="replace_existing" style="width:auto;">
+                <span>Reemplazar lista existente del evento (borra los inscriptos actuales antes de importar)</span>
+            </label>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Importar</button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}

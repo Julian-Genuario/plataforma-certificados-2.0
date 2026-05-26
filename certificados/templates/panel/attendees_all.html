@@ -1,0 +1,95 @@
+{% extends "panel/base.html" %}
+
+{% block title %}Inscriptos{% endblock %}
+{% block page_title %}Inscriptos{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'panel_attendees_import_all' %}" class="btn btn-primary btn-sm">+ Importar lista</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <form method="get" class="filters">
+        <select name="event">
+            <option value="">Todos los eventos</option>
+            {% for ev in events %}
+            <option value="{{ ev.pk }}" {% if event_filter == ev.pk|stringformat:"s" %}selected{% endif %}>
+                {{ ev.name }} ({{ ev.attendee_count }})
+            </option>
+            {% endfor %}
+        </select>
+        <input type="text" name="search" value="{{ search }}" placeholder="Buscar por nombre o email..." style="min-width:260px;">
+        <button type="submit" class="btn btn-secondary btn-sm">Filtrar</button>
+        {% if event_filter or search %}
+        <a href="{% url 'panel_attendees_all' %}" class="btn btn-secondary btn-sm">Limpiar</a>
+        {% endif %}
+        <div style="margin-left:auto;color:#6b7280;font-size:13px;">
+            {{ total }} inscripto{{ total|pluralize }}
+        </div>
+    </form>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Nombre completo</th>
+                    <th>Email</th>
+                    <th>Evento</th>
+                    <th>Importado</th>
+                    <th style="text-align:right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in attendees %}
+                <tr>
+                    <td><strong>{{ a.full_name }}</strong></td>
+                    <td style="color:#6b7280;">{{ a.email }}</td>
+                    <td>
+                        <a href="{% url 'panel_attendees' event_pk=a.event.pk %}" style="color:#3b82f6;text-decoration:none;">
+                            {{ a.event.name }}
+                        </a>
+                    </td>
+                    <td style="color:#6b7280;font-size:13px;">{{ a.created_at|date:"d/m/Y H:i" }}</td>
+                    <td style="text-align:right;">
+                        <form method="post" action="{% url 'panel_attendee_delete' event_pk=a.event.pk pk=a.pk %}" style="display:inline;" onsubmit="return confirm('Eliminar a {{ a.full_name|escapejs }}?');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-danger btn-sm">Eliminar</button>
+                        </form>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5">
+                        <div class="empty-state">
+                            <div class="icon">&#9787;</div>
+                            <p>
+                                {% if event_filter or search %}
+                                    No se encontraron inscriptos con esos filtros.
+                                {% else %}
+                                    Todavía no hay inscriptos cargados en ningún evento.
+                                {% endif %}
+                            </p>
+                            {% if not event_filter and not search %}
+                            <a href="{% url 'panel_attendees_import_all' %}" class="btn btn-primary">Importar primera lista</a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="?event={{ event_filter }}&search={{ search }}&page={{ page|add:'-1' }}">&laquo; Anterior</a>
+        {% endif %}
+        <span class="current">{{ page }} / {{ total_pages }}</span>
+        {% if page < total_pages %}
+        <a href="?event={{ event_filter }}&search={{ search }}&page={{ page|add:'1' }}">Siguiente &raquo;</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

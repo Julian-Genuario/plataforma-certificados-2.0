@@ -1,0 +1,98 @@
+{% extends "panel/base.html" %}
+
+{% block title %}Eventos{% endblock %}
+{% block page_title %}Eventos{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'panel_event_create' %}" class="btn btn-primary btn-sm">+ Nuevo evento</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Slug</th>
+                    <th>Estado</th>
+                    <th>Descargas</th>
+                    <th>Link publico</th>
+                    <th style="text-align:right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in events %}
+                <tr>
+                    <td><strong>{{ event.name }}</strong></td>
+                    <td style="color:#6b7280;font-family:monospace;">{{ event.slug }}</td>
+                    <td>
+                        {% if event.active %}
+                            <span class="badge badge-success">Activo</span>
+                        {% else %}
+                            <span class="badge badge-danger">Inactivo</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ event.download_count }}</td>
+                    <td>
+                        <a href="{% url 'event_page' slug=event.slug %}" target="_blank"
+                           style="color:#3b82f6;text-decoration:none;font-size:13px;">
+                            /e/{{ event.slug }}/
+                        </a>
+                    </td>
+                    <td style="text-align:right;">
+                        <div style="display:flex;gap:8px;justify-content:flex-end;">
+                            <form method="post" action="{% url 'panel_event_toggle' pk=event.pk %}" style="display:inline;">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-secondary btn-sm" title="{% if event.active %}Desactivar{% else %}Activar{% endif %}">
+                                    {% if event.active %}&#10006;{% else %}&#10004;{% endif %}
+                                </button>
+                            </form>
+                            <a href="{% url 'panel_attendees' event_pk=event.pk %}" class="btn btn-secondary btn-sm">Inscriptos</a>
+                            <a href="{% url 'panel_event_edit' pk=event.pk %}" class="btn btn-secondary btn-sm">Editar</a>
+                            <button class="btn btn-danger btn-sm" onclick="confirmDelete('{% url 'panel_event_delete' pk=event.pk %}', '{{ event.name }}')">Eliminar</button>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6">
+                        <div class="empty-state">
+                            <div class="icon">&#9733;</div>
+                            <p>No hay eventos creados</p>
+                            <a href="{% url 'panel_event_create' %}" class="btn btn-primary">Crear primer evento</a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Delete modal -->
+<div class="modal-overlay" id="deleteModal">
+    <div class="modal">
+        <h3>Eliminar evento</h3>
+        <p>Estas seguro que queres eliminar "<span id="deleteItemName"></span>"? Esta accion no se puede deshacer.</p>
+        <form method="post" id="deleteForm">
+            {% csrf_token %}
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button type="submit" class="btn btn-danger">Eliminar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function confirmDelete(url, name) {
+    document.getElementById('deleteForm').action = url;
+    document.getElementById('deleteItemName').textContent = name;
+    document.getElementById('deleteModal').classList.add('active');
+}
+function closeModal() {
+    document.getElementById('deleteModal').classList.remove('active');
+}
+</script>
+{% endblock %}

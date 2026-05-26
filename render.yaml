@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: plataforma-certificados
+    runtime: python
+    buildCommand: bash build.sh
+    startCommand: gunicorn config.wsgi:application
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: CSRF_TRUSTED_ORIGINS
+        value: "https://plataforma-certificados.onrender.com"
+      - key: PYTHON_VERSION
+        value: "3.12.3"

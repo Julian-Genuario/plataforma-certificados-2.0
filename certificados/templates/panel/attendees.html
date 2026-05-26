@@ -1,0 +1,127 @@
+{% extends "panel/base.html" %}
+
+{% block title %}Inscriptos - {{ event.name }}{% endblock %}
+{% block page_title %}Inscriptos - {{ event.name }}{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'panel_attendees_import' event_pk=event.pk %}" class="btn btn-primary btn-sm">+ Importar lista</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <div>
+            <div class="card-title">Lista de inscriptos</div>
+            <p style="color:#6b7280;font-size:13px;margin-top:4px;">
+                {% if total %}
+                    {{ total }} inscripto{{ total|pluralize }} cargado{{ total|pluralize }}. Si esta lista está vacía, la descarga pública de certificados es libre.
+                {% else %}
+                    Sin inscriptos cargados — la descarga es libre para este evento.
+                {% endif %}
+            </p>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <a href="{% url 'panel_events' %}" class="btn btn-secondary btn-sm">Volver a eventos</a>
+            {% if total %}
+            <button class="btn btn-danger btn-sm" onclick="confirmClear()">Limpiar todos</button>
+            {% endif %}
+        </div>
+    </div>
+
+    <form method="get" class="filters">
+        <input type="text" name="search" value="{{ search }}" placeholder="Buscar por nombre o email..." style="min-width:280px;">
+        <button type="submit" class="btn btn-secondary btn-sm">Buscar</button>
+        {% if search %}
+        <a href="{% url 'panel_attendees' event_pk=event.pk %}" class="btn btn-secondary btn-sm">Limpiar</a>
+        {% endif %}
+    </form>
+
+    {% if truncated %}
+    <div class="alert alert-error" style="background:#fef3c7;color:#92400e;border-color:#fde68a;">
+        Mostrando primeros 500 de {{ total }} inscriptos. Usá la búsqueda para filtrar.
+    </div>
+    {% endif %}
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Nombre completo</th>
+                    <th>Email</th>
+                    <th>Importado</th>
+                    <th style="text-align:right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in attendees %}
+                <tr>
+                    <td><strong>{{ a.full_name }}</strong></td>
+                    <td style="color:#6b7280;">{{ a.email }}</td>
+                    <td style="color:#6b7280;font-size:13px;">{{ a.created_at|date:"d/m/Y H:i" }}</td>
+                    <td style="text-align:right;">
+                        <button class="btn btn-danger btn-sm"
+                                onclick="confirmDelete('{% url 'panel_attendee_delete' event_pk=event.pk pk=a.pk %}', '{{ a.full_name|escapejs }}')">
+                            Eliminar
+                        </button>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4">
+                        <div class="empty-state">
+                            <div class="icon">&#9776;</div>
+                            <p>{% if search %}Ningún inscripto coincide con la búsqueda.{% else %}Todavía no cargaste inscriptos.{% endif %}</p>
+                            {% if not search %}
+                            <a href="{% url 'panel_attendees_import' event_pk=event.pk %}" class="btn btn-primary">Importar lista</a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal-overlay" id="deleteModal">
+    <div class="modal">
+        <h3>Eliminar inscripto</h3>
+        <p>Estás seguro que querés eliminar "<span id="deleteItemName"></span>"?</p>
+        <form method="post" id="deleteForm">
+            {% csrf_token %}
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('deleteModal')">Cancelar</button>
+                <button type="submit" class="btn btn-danger">Eliminar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="clearModal">
+    <div class="modal">
+        <h3>Limpiar todos los inscriptos</h3>
+        <p>Esto eliminará los {{ total }} inscriptos cargados. La descarga del evento volverá a ser libre hasta que cargues una nueva lista.</p>
+        <form method="post" action="{% url 'panel_attendees_clear' event_pk=event.pk %}">
+            {% csrf_token %}
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('clearModal')">Cancelar</button>
+                <button type="submit" class="btn btn-danger">Eliminar todos</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function confirmDelete(url, name) {
+    document.getElementById('deleteForm').action = url;
+    document.getElementById('deleteItemName').textContent = name;
+    document.getElementById('deleteModal').classList.add('active');
+}
+function confirmClear() {
+    document.getElementById('clearModal').classList.add('active');
+}
+function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+}
+</script>
+{% endblock %}

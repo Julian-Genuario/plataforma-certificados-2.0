@@ -1,0 +1,90 @@
+{% extends "panel/base.html" %}
+
+{% block title %}Descargas{% endblock %}
+{% block page_title %}Registro de descargas{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'panel_logs_export' %}?event={{ event_filter|default:'' }}&search={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}&tipo={{ tipo_filter }}"
+   class="btn btn-secondary btn-sm">Exportar CSV</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <form method="get" class="filters">
+        <select name="event" onchange="this.form.submit()">
+            <option value="">Todos los eventos</option>
+            {% for ev in events %}
+            <option value="{{ ev.pk }}" {% if event_filter == ev.pk|stringformat:"d" %}selected{% endif %}>{{ ev.name }}</option>
+            {% endfor %}
+        </select>
+        <select name="tipo" onchange="this.form.submit()">
+            <option value="">Todos los tipos</option>
+            <option value="publico" {% if tipo_filter == "publico" %}selected{% endif %}>P&uacute;blicos</option>
+            <option value="manual" {% if tipo_filter == "manual" %}selected{% endif %}>Manuales</option>
+        </select>
+        <input type="text" name="search" value="{{ search }}" placeholder="Buscar por nombre...">
+        <input type="date" name="date_from" value="{{ date_from }}" title="Desde">
+        <input type="date" name="date_to" value="{{ date_to }}" title="Hasta">
+        <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+        {% if search or event_filter or date_from or date_to or tipo_filter %}
+        <a href="{% url 'panel_logs' %}" class="btn btn-secondary btn-sm">Limpiar</a>
+        {% endif %}
+    </form>
+
+    <div style="font-size:13px;color:#6b7280;margin-bottom:12px;">{{ total }} resultado{{ total|pluralize:"s" }}</div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Evento</th>
+                    <th>Tipo</th>
+                    <th>Fecha</th>
+                    <th>IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td><strong>{{ log.name_entered }}</strong></td>
+                    <td>{{ log.event.name }}</td>
+                    <td>
+                        {% if log.manual %}
+                        <span class="badge badge-info">Manual</span>
+                        {% else %}
+                        <span class="badge badge-success">P&uacute;blico</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ log.created_at|date:"d/m/Y H:i" }}</td>
+                    <td style="font-family:monospace;color:#6b7280;font-size:13px;">{{ log.ip|default:"-" }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5">
+                        <div class="empty-state">
+                            <div class="icon">&#8681;</div>
+                            <p>No hay descargas registradas</p>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="?page={{ page|add:"-1" }}&event={{ event_filter|default:'' }}&search={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}&tipo={{ tipo_filter }}">Anterior</a>
+        {% endif %}
+
+        <span class="current">{{ page }} / {{ total_pages }}</span>
+
+        {% if page < total_pages %}
+        <a href="?page={{ page|add:"1" }}&event={{ event_filter|default:'' }}&search={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}&tipo={{ tipo_filter }}">Siguiente</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

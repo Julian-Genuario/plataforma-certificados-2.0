@@ -1,0 +1,88 @@
+{% extends "panel/base.html" %}
+
+{% block title %}Templates{% endblock %}
+{% block page_title %}Templates de certificados{% endblock %}
+
+{% block topbar_actions %}
+{% if events_without_template %}
+<a href="{% url 'panel_template_create' %}" class="btn btn-primary btn-sm">+ Nuevo template</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Evento</th>
+                    <th>Modo</th>
+                    <th>Posicion</th>
+                    <th>Fuente</th>
+                    <th>Vista previa</th>
+                    <th style="text-align:right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for tpl in templates %}
+                <tr>
+                    <td><strong>{{ tpl.event.name }}</strong></td>
+                    <td><span class="badge badge-info">{{ tpl.get_mode_display }}</span></td>
+                    <td style="font-family:monospace;font-size:13px;">X:{{ tpl.x }} Y:{{ tpl.y }} P:{{ tpl.page_number }}</td>
+                    <td>{{ tpl.font_size }}px / {{ tpl.align }}</td>
+                    <td>
+                        <a href="{% url 'panel_template_preview' pk=tpl.pk %}" target="_blank" class="btn btn-secondary btn-sm">Ver PDF</a>
+                    </td>
+                    <td style="text-align:right;">
+                        <div style="display:flex;gap:8px;justify-content:flex-end;">
+                            <a href="{% url 'panel_template_edit' pk=tpl.pk %}" class="btn btn-secondary btn-sm">Editar</a>
+                            <button class="btn btn-danger btn-sm" onclick="confirmDelete('{% url 'panel_template_delete' pk=tpl.pk %}', '{{ tpl.event.name }}')">Eliminar</button>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6">
+                        <div class="empty-state">
+                            <div class="icon">&#9776;</div>
+                            <p>No hay templates creados</p>
+                            {% if events_without_template %}
+                            <a href="{% url 'panel_template_create' %}" class="btn btn-primary">Crear primer template</a>
+                            {% else %}
+                            <p style="font-size:13px;">Primero crea un evento para poder asignarle un template.</p>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Delete modal -->
+<div class="modal-overlay" id="deleteModal">
+    <div class="modal">
+        <h3>Eliminar template</h3>
+        <p>Estas seguro que queres eliminar el template de "<span id="deleteItemName"></span>"?</p>
+        <form method="post" id="deleteForm">
+            {% csrf_token %}
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button type="submit" class="btn btn-danger">Eliminar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function confirmDelete(url, name) {
+    document.getElementById('deleteForm').action = url;
+    document.getElementById('deleteItemName').textContent = name;
+    document.getElementById('deleteModal').classList.add('active');
+}
+function closeModal() {
+    document.getElementById('deleteModal').classList.remove('active');
+}
+</script>
+{% endblock %}

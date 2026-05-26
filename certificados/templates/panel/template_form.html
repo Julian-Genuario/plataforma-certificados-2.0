@@ -1,0 +1,297 @@
+{% extends "panel/base.html" %}
+
+{% block title %}{% if template %}Editar{% else %}Crear{% endif %} template{% endblock %}
+{% block page_title %}{% if template %}Editar template{% else %}Nuevo template{% endif %}{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'panel_templates' %}" class="btn btn-secondary btn-sm">Volver</a>
+{% endblock %}
+
+{% block content %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+    <div class="card">
+        <div class="card-title" style="margin-bottom:20px;">Configuracion</div>
+        <form method="post" enctype="multipart/form-data" id="templateForm">
+            {% csrf_token %}
+
+            {% if not template %}
+            <div class="form-group">
+                <label>Evento</label>
+                <select name="event" required>
+                    <option value="">Seleccionar evento...</option>
+                    {% for event in events_available %}
+                    <option value="{{ event.pk }}">{{ event.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            <div class="form-group">
+                <label>PDF del certificado</label>
+                <input type="file" name="pdf" accept=".pdf" {% if not template %}required{% endif %} id="pdfFile">
+                {% if template %}
+                <div class="form-help">Archivo actual: {{ template.pdf.name }} - Subir uno nuevo para reemplazar</div>
+                {% endif %}
+            </div>
+
+            <div class="form-group">
+                <label>Modo</label>
+                <select name="mode">
+                    <option value="coords" {% if template.mode == 'coords' or not template %}selected{% endif %}>Escribir por coordenadas</option>
+                    <option value="field" {% if template.mode == 'field' %}selected{% endif %}>Campo rellenable (PDF Form Field)</option>
+                </select>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Pagina (desde 0)</label>
+                    <input type="number" name="page_number" id="pageNum" value="{{ tpl_page_number }}" min="0">
+                </div>
+                <div class="form-group">
+                    <label>Tamano de fuente</label>
+                    <input type="number" name="font_size" id="fontSize" value="{{ tpl_font_size }}" step="0.5" min="1" oninput="renderPreview()">
+                </div>
+            </div>
+
+            <div class="form-row-3">
+                <div class="form-group">
+                    <label>X (horizontal)</label>
+                    <input type="number" name="x" id="inputX" value="{{ tpl_x }}" step="1" oninput="renderPreview()">
+                </div>
+                <div class="form-group">
+                    <label>Y (vertical)</label>
+                    <input type="number" name="y" id="inputY" value="{{ tpl_y }}" step="1" oninput="renderPreview()">
+                </div>
+                <div class="form-group">
+                    <label>Alineacion</label>
+                    <select name="align" id="alignSel" onchange="renderPreview()">
+                        <option value="center" {% if template.align == 'center' or not template %}selected{% endif %}>Centro</option>
+                        <option value="left" {% if template.align == 'left' %}selected{% endif %}>Izquierda</option>
+                        <option value="right" {% if template.align == 'right' %}selected{% endif %}>Derecha</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Nombre del campo (modo field)</label>
+                <input type="text" name="field_name" value="{{ template.field_name|default:'full_name' }}">
+            </div>
+
+            <div style="display:flex;gap:12px;margin-top:8px;">
+                <button type="submit" class="btn btn-primary">{% if template %}Guardar{% else %}Crear template{% endif %}</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <div class="card-title" style="margin-bottom:20px;">Vista previa en vivo</div>
+
+        <div class="form-group">
+            <label>Nombre de prueba</label>
+            <input type="text" id="previewName" value="Juan Perez" oninput="renderPreview()">
+        </div>
+
+        <div id="previewContainer" style="position:relative;border:2px solid #e5e7eb;border-radius:8px;overflow:hidden;background:#f9fafb;min-height:300px;display:flex;align-items:center;justify-content:center;cursor:crosshair;">
+            <div id="loadingMsg" style="color:#6b7280;font-size:14px;">
+                {% if template %}Cargando PDF...{% else %}Subi un PDF para ver la vista previa{% endif %}
+            </div>
+            <canvas id="pdfCanvas" style="display:none;width:100%;"></canvas>
+            <canvas id="overlayCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;cursor:crosshair;"></canvas>
+        </div>
+        <div style="margin-top:8px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;color:#166534;text-align:center;">
+            Hace click en el PDF para posicionar el nombre
+        </div>
+
+        <div style="margin-top:12px;font-size:12px;color:#6b7280;text-align:center;">
+            Modifica X, Y o el tamano de fuente y la vista previa se actualiza en tiempo real.
+            {% if template %}
+            <br><a href="{% url 'panel_template_preview' pk=template.pk %}?name=Juan+Perez&fmt=pdf" target="_blank" style="color:#3b82f6;">Descargar PDF de prueba</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+var pdfDoc = null;
+var pdfScale = 1;
+var pageRendering = false;
+var currentPdfW = 0;
+var currentPdfH = 0;
+
+// Click on PDF to set position
+document.getElementById('overlayCanvas').addEventListener('click', function(e) {
+    if (!pdfDoc) return;
+    var rect = this.getBoundingClientRect();
+    var clickX = e.clientX - rect.left;
+    var clickY = e.clientY - rect.top;
+
+    // Convert canvas pixels to PDF coordinates
+    var pdfX = Math.round(clickX / pdfScale);
+    var pdfY = Math.round((this.height - clickY) / pdfScale);
+
+    document.getElementById('inputX').value = pdfX;
+    document.getElementById('inputY').value = pdfY;
+    renderPreview();
+});
+
+// Set worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+{% if template %}
+// Load existing PDF from server
+loadPdfFromUrl("{{ template.pdf.url }}");
+{% endif %}
+
+// Also handle new file uploads
+document.getElementById('pdfFile').addEventListener('change', function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+        loadPdfFromData(new Uint8Array(ev.target.result));
+    };
+    reader.readAsArrayBuffer(file);
+});
+
+function loadPdfFromUrl(url) {
+    document.getElementById('loadingMsg').textContent = 'Cargando PDF...';
+    document.getElementById('loadingMsg').style.display = 'block';
+    pdfjsLib.getDocument(url).promise.then(function(pdf) {
+        pdfDoc = pdf;
+        renderPreview();
+    }).catch(function(err) {
+        document.getElementById('loadingMsg').textContent = 'Error cargando PDF: ' + err.message;
+    });
+}
+
+function loadPdfFromData(data) {
+    document.getElementById('loadingMsg').textContent = 'Cargando PDF...';
+    document.getElementById('loadingMsg').style.display = 'block';
+    pdfjsLib.getDocument({data: data}).promise.then(function(pdf) {
+        pdfDoc = pdf;
+        renderPreview();
+    }).catch(function(err) {
+        document.getElementById('loadingMsg').textContent = 'Error cargando PDF: ' + err.message;
+    });
+}
+
+function renderPreview() {
+    if (!pdfDoc) return;
+    if (pageRendering) return;
+    pageRendering = true;
+
+    var pageNum = parseInt(document.getElementById('pageNum').value) || 0;
+    var pageIdx = Math.min(pageNum + 1, pdfDoc.numPages);
+
+    pdfDoc.getPage(pageIdx).then(function(page) {
+        var container = document.getElementById('previewContainer');
+        var containerWidth = container.clientWidth;
+
+        var viewport = page.getViewport({scale: 1});
+        pdfScale = containerWidth / viewport.width;
+        var scaledViewport = page.getViewport({scale: pdfScale});
+
+        // Setup PDF canvas
+        var pdfCanvas = document.getElementById('pdfCanvas');
+        pdfCanvas.width = scaledViewport.width;
+        pdfCanvas.height = scaledViewport.height;
+        pdfCanvas.style.display = 'block';
+
+        // Setup overlay canvas
+        var overlay = document.getElementById('overlayCanvas');
+        overlay.width = scaledViewport.width;
+        overlay.height = scaledViewport.height;
+        overlay.style.display = 'block';
+
+        // Adjust container height
+        container.style.height = scaledViewport.height + 'px';
+
+        document.getElementById('loadingMsg').style.display = 'none';
+
+        // Render PDF page
+        var renderCtx = {
+            canvasContext: pdfCanvas.getContext('2d'),
+            viewport: scaledViewport
+        };
+
+        page.render(renderCtx).promise.then(function() {
+            pageRendering = false;
+            currentPdfW = viewport.width;
+            currentPdfH = viewport.height;
+            drawOverlay();
+        });
+    });
+}
+
+function drawOverlay() {
+    var overlay = document.getElementById('overlayCanvas');
+    var ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+    var x = parseFloat(document.getElementById('inputX').value) || 100;
+    var y = parseFloat(document.getElementById('inputY').value) || 300;
+    var fontSize = parseFloat(document.getElementById('fontSize').value) || 28;
+    var align = document.getElementById('alignSel').value;
+    var name = document.getElementById('previewName').value || 'Juan Perez';
+
+    // Convert PDF coordinates to canvas pixels
+    // PDF origin is bottom-left, canvas is top-left
+    var px = x * pdfScale;
+    var py = overlay.height - (y * pdfScale);
+    var scaledFontSize = fontSize * pdfScale;
+
+    // Draw crosshair
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px - 15, py);
+    ctx.lineTo(px + 15, py);
+    ctx.moveTo(px, py - 15);
+    ctx.lineTo(px, py + 15);
+    ctx.stroke();
+
+    // Draw circle
+    ctx.beginPath();
+    ctx.arc(px, py, 5, 0, 2 * Math.PI);
+    ctx.stroke();
+
+    // Draw name text
+    ctx.font = scaledFontSize + 'px Helvetica, Arial, sans-serif';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+
+    var textWidth = ctx.measureText(name).width;
+    var drawX;
+    if (align === 'center') {
+        drawX = px - textWidth / 2;
+    } else if (align === 'right') {
+        drawX = px - textWidth;
+    } else {
+        drawX = px;
+    }
+
+    ctx.fillText(name, drawX, py);
+
+    // Draw semi-transparent guide line across full width
+    ctx.strokeStyle = 'rgba(59, 130, 246, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(0, py);
+    ctx.lineTo(overlay.width, py);
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px, overlay.height);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Position label
+    ctx.font = '11px Arial, sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    var label = 'X:' + x + ' Y:' + y + ' Font:' + fontSize + 'pt';
+    var lw = ctx.measureText(label).width + 12;
+    ctx.fillRect(px + 10, py - 24, lw, 20);
+    ctx.fillStyle = '#1a1d23';
+    ctx.fillText(label, px + 16, py - 10);
+}
+</script>
+{% endblock %}

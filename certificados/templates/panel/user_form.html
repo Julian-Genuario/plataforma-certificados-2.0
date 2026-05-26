@@ -1,0 +1,47 @@
+{% extends "panel/base.html" %}
+
+{% block title %}{% if user_obj %}Editar{% else %}Crear{% endif %} usuario{% endblock %}
+{% block page_title %}{% if user_obj %}Editar usuario{% else %}Nuevo usuario{% endif %}{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'panel_users' %}" class="btn btn-secondary btn-sm">Volver</a>
+{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:500px;">
+    <form method="post">
+        {% csrf_token %}
+
+        <div class="form-group">
+            <label>Nombre de usuario</label>
+            <input type="text" name="username" value="{{ user_obj.username|default:'' }}" required>
+        </div>
+
+        <div class="form-group">
+            <label>Email</label>
+            <input type="email" name="email" value="{{ user_obj.email|default:'' }}">
+        </div>
+
+        <div class="form-group">
+            <label>Contrasena {% if user_obj %}(dejar vacio para no cambiar){% endif %}</label>
+            <input type="password" name="password" {% if not user_obj %}required{% endif %}>
+        </div>
+
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:12px;">
+                <span>Superadmin</span>
+                <label class="toggle">
+                    <input type="checkbox" name="is_superuser" {% if user_obj.is_superuser %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+            <div class="form-help">Los superadmin tienen acceso total al sistema</div>
+        </div>
+
+        <div style="display:flex;gap:12px;">
+            <button type="submit" class="btn btn-primary">{% if user_obj %}Guardar{% else %}Crear usuario{% endif %}</button>
+            <a href="{% url 'panel_users' %}" class="btn btn-secondary">Cancelar</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "panel/base.html" %}
+
+{% block title %}{% if event %}Editar{% else %}Crear{% endif %} evento{% endblock %}
+{% block page_title %}{% if event %}Editar evento{% else %}Nuevo evento{% endif %}{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'panel_events' %}" class="btn btn-secondary btn-sm">Volver</a>
+{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:600px;">
+    <form method="post">
+        {% csrf_token %}
+
+        <div class="form-group">
+            <label>Nombre del evento</label>
+            <input type="text" name="name" value="{{ event.name|default:'' }}" required
+                   placeholder="Ej: Congreso de Tecnologia 2026"
+                   oninput="generateSlug(this.value)">
+        </div>
+
+        <div class="form-group">
+            <label>Slug (URL)</label>
+            <input type="text" name="slug" id="slugField" value="{{ event.slug|default:'' }}"
+                   placeholder="congreso-de-tecnologia-2026">
+            <div class="form-help">Se genera automaticamente del nombre. Se usa en la URL: /e/slug/</div>
+        </div>
+
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:12px;">
+                <span>Activo</span>
+                <label class="toggle">
+                    <input type="checkbox" name="active" {% if event.active or not event %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:12px;">
+                <span>Pedir email al descargar</span>
+                <label class="toggle">
+                    <input type="checkbox" name="require_email" {% if event.require_email or not event %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+            <div class="form-help">Si está activado, el form público pide email obligatorio. Cuando hay inscriptos cargados, se valida nombre + email contra la lista.</div>
+        </div>
+
+        <div class="form-group">
+            <label>Texto informativo (bajada)</label>
+            <textarea name="info_text" rows="4" placeholder="Texto que se muestra debajo del email en la página pública. Por ejemplo: 'Usá el email con el que te registraste al evento.'">{{ event.info_text|default:'' }}</textarea>
+            <div class="form-help">Se muestra en la página pública del evento, debajo del último campo del formulario.</div>
+        </div>
+
+        <div style="display:flex;gap:12px;">
+            <button type="submit" class="btn btn-primary">{% if event %}Guardar cambios{% else %}Crear evento{% endif %}</button>
+            <a href="{% url 'panel_events' %}" class="btn btn-secondary">Cancelar</a>
+        </div>
+    </form>
+</div>
+
+<script>
+function generateSlug(text) {
+    var slug = text.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+    document.getElementById('slugField').value = slug;
+}
+</script>
+{% endblock %}
