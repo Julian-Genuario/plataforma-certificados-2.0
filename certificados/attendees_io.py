@@ -25,6 +25,8 @@ EMAIL_HEADERS = {
     "email", "e-mail", "e mail", "mail", "correo",
     "correo electronico", "correo electrónico",
 }
+# Valores que cuentan como suscripción activa en el export de brisaplus.
+ACTIVE_VALUES = {"si", "sí", "yes", "y", "1", "true", "activo", "activa"}
 
 MAX_NAME_LEN = 200
 MAX_ROWS = 5000
@@ -110,26 +112,48 @@ def _validate(name, email):
     return None
 
 
-def _parse_rows(rows):
+def _detect_subscription(header_row):
+    """Return the index of the 'Activado Suscripción' column, or None."""
+    for i, cell in enumerate(header_row):
+        if "suscrip" in _norm_header(cell):
+            return i
+    return None
+
+
+def _parse_rows(rows, only_active=False):
     """Generic row parser. rows: iterable of list[str]. First row is treated
     as header IFF it contains a recognizable name/email column.
-    Returns (clean: list[(name, email)], errors: list[(line_no, reason, raw)]).
+
+    When only_active is True and the data has an 'Activado Suscripción'
+    column, rows without an active subscription are skipped.
+
+    Returns (clean, errors, skipped_inactive):
+      clean: list[(name, email)]
+      errors: list[(line_no, reason, raw)]
+      skipped_inactive: int
     """
     rows = list(rows)
     if not rows:
-        return [], []
+        return [], [], 0
 
     name_idx, surname_idx, email_idx = _detect_columns(rows[0])
     has_header = name_idx is not None or surname_idx is not None or email_idx is not None
+    sub_idx = _detect_subscription(rows[0]) if has_header else None
     data_rows = rows[1:] if has_header else rows
     start_line = 2 if has_header else 1
 
     clean = []
     errors = []
+    skipped_inactive = 0
     for offset, row in enumerate(data_rows):
         line_no = start_line + offset
         if not any(str(c).strip() for c in row):
             continue
+        if only_active and sub_idx is not None:
+            value = row[sub_idx].strip().lower() if sub_idx < len(row) else ""
+            if value not in ACTIVE_VALUES:
+                skipped_inactive += 1
+                continue
         name, email = _clean_row(name_idx, surname_idx, email_idx, row)
         err = _validate(name, email)
         raw = " | ".join(str(c) for c in row)
@@ -140,10 +164,10 @@ def _parse_rows(rows):
         if len(clean) >= MAX_ROWS:
             errors.append((line_no + 1, f"Límite de {MAX_ROWS} filas alcanzado, resto ignorado", ""))
             break
-    return clean, errors
+    return clean, errors, skipped_inactive
 
 
-def parse_csv(file_obj):
+def parse_csv(file_obj, only_active=False):
     raw = file_obj.read()
     if isinstance(raw, bytes):
         for enc in ("utf-8-sig", "utf-8", "latin-1"):
@@ -163,10 +187,10 @@ def parse_csv(file_obj):
     except csv.Error:
         dialect = csv.excel
     reader = csv.reader(io.StringIO(text), dialect=dialect)
-    return _parse_rows(reader)
+    return _parse_rows(reader, only_active=only_active)
 
 
-def parse_xlsx(file_obj):
+def parse_xlsx(file_obj, only_active=False):
     try:
         from openpyxl import load_workbook
     except ImportError:
@@ -181,13 +205,13 @@ def parse_xlsx(file_obj):
     rows = []
     for r in ws.iter_rows(values_only=True):
         rows.append(["" if c is None else str(c) for c in r])
-    return _parse_rows(rows)
+    return _parse_rows(rows, only_active=only_active)
 
 
-def parse_text(text):
+def parse_text(text, only_active=False):
     lines = (text or "").splitlines()
     rows = [_split_text_line(line) for line in lines if line.strip()]
-    return _parse_rows(rows)
+    return _parse_rows(rows, only_active=only_active)
 
 
 class _FirstTableParser(HTMLParser):
@@ -231,7 +255,7 @@ class _FirstTableParser(HTMLParser):
             self._buf.append(data)
 
 
-def parse_html_table(file_obj):
+def parse_html_table(file_obj, only_active=False):
     """Parse the brisaplus user export: an HTML table saved with a .xls/.html
     extension. Columns Nombre / Apellido / Email are detected by header.
     """
@@ -254,7 +278,7 @@ def parse_html_table(file_obj):
         raise ParseError(
             "No se encontró ninguna tabla en el archivo. ¿Es el export de brisaplus?"
         )
-    return _parse_rows(parser.rows)
+    return _parse_rows(parser.rows, only_active=only_active)
 
 
 def _looks_like_html(file_obj):
@@ -269,22 +293,22 @@ def _looks_like_html(file_obj):
     return b"<html" in head or b"<table" in head or b"<!doctype html" in head
 
 
-def parse_uploaded_file(file_obj):
+def parse_uploaded_file(file_obj, only_active=False):
     """Dispatch on filename extension (and content, for the brisaplus .xls)."""
     name = (getattr(file_obj, "name", "") or "").lower()
     if name.endswith(".xlsx"):
-        return parse_xlsx(file_obj)
+        return parse_xlsx(file_obj, only_active=only_active)
     if name.endswith((".html", ".htm")):
-        return parse_html_table(file_obj)
+        return parse_html_table(file_obj, only_active=only_active)
     if name.endswith(".xls"):
         # brisaplus exporta una tabla HTML disfrazada de .xls
         if _looks_like_html(file_obj):
-            return parse_html_table(file_obj)
+            return parse_html_table(file_obj, only_active=only_active)
         raise ParseError(
             "Ese .xls no es el export HTML de brisaplus. Convertilo a .xlsx o .csv."
         )
     if name.endswith((".csv", ".txt")):
-        return parse_csv(file_obj)
+        return parse_csv(file_obj, only_active=only_active)
     raise ParseError(
         "Formato no soportado. Subí .xlsx, .csv o el export (.xls) de brisaplus."
     )

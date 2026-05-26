@@ -777,25 +777,30 @@ def panel_attendees(request, event_pk):
 def _do_attendees_import(request, event):
     """Process POST data and import attendees for the given event.
 
-    Returns (created, duplicated, errors) tuple. Caller is responsible for
-    showing messages and redirecting.
+    Returns (created, duplicated, errors, skipped_inactive). Caller is
+    responsible for showing messages and redirecting.
     """
     from .models import normalize_email
 
     uploaded = request.FILES.get("file")
     pasted = request.POST.get("pasted_text", "")
     replace_existing = request.POST.get("replace_existing") == "on"
+    # Por defecto importamos solo suscripciones activas (export de brisaplus).
+    only_active = request.POST.get("only_active") == "on"
 
     clean = []
     errors = []
+    skipped_inactive = 0
     if uploaded:
-        file_clean, file_errors = parse_uploaded_file(uploaded)
+        file_clean, file_errors, file_skipped = parse_uploaded_file(uploaded, only_active=only_active)
         clean.extend(file_clean)
         errors.extend(file_errors)
+        skipped_inactive += file_skipped
     if pasted.strip():
-        text_clean, text_errors = parse_text(pasted)
+        text_clean, text_errors, text_skipped = parse_text(pasted, only_active=only_active)
         clean.extend(text_clean)
         errors.extend(text_errors)
+        skipped_inactive += text_skipped
 
     if replace_existing:
         event.attendees.all().delete()
@@ -813,13 +818,15 @@ def _do_attendees_import(request, event):
         Attendee.objects.create(event=event, full_name=name, email=email)
         created += 1
 
-    return created, duplicated, errors
+    return created, duplicated, errors, skipped_inactive
 
 
-def _summarize_import(request, event, created, duplicated, errors):
+def _summarize_import(request, event, created, duplicated, errors, skipped_inactive=0):
     msg = f"{created} inscriptos importados."
     if duplicated:
         msg += f" {duplicated} duplicados omitidos."
+    if skipped_inactive:
+        msg += f" {skipped_inactive} sin suscripción activa omitidos."
     if errors:
         msg += f" {len(errors)} filas con errores."
     messages.success(request, msg)
@@ -833,16 +840,16 @@ def panel_attendees_import(request, event_pk):
 
     if request.method == "POST":
         try:
-            created, duplicated, errors = _do_attendees_import(request, event)
+            created, duplicated, errors, skipped_inactive = _do_attendees_import(request, event)
         except ParseError as exc:
             messages.error(request, str(exc))
             return redirect("panel_attendees_import", event_pk=event.pk)
 
-        if not created and not duplicated and not errors:
+        if not created and not duplicated and not errors and not skipped_inactive:
             messages.error(request, "No se cargaron datos. Subí un archivo o pegá la lista.")
             return redirect("panel_attendees_import", event_pk=event.pk)
 
-        _summarize_import(request, event, created, duplicated, errors)
+        _summarize_import(request, event, created, duplicated, errors, skipped_inactive)
         return redirect("panel_attendees", event_pk=event.pk)
 
     session_errors = request.session.pop(f"attendee_errors_{event.pk}", None)
@@ -923,16 +930,16 @@ def panel_attendees_import_all(request):
         event = get_object_or_404(Event, pk=event_id)
 
         try:
-            created, duplicated, errors = _do_attendees_import(request, event)
+            created, duplicated, errors, skipped_inactive = _do_attendees_import(request, event)
         except ParseError as exc:
             messages.error(request, str(exc))
             return redirect("panel_attendees_import_all")
 
-        if not created and not duplicated and not errors:
+        if not created and not duplicated and not errors and not skipped_inactive:
             messages.error(request, "No se cargaron datos. Subí un archivo o pegá la lista.")
             return redirect("panel_attendees_import_all")
 
-        _summarize_import(request, event, created, duplicated, errors)
+        _summarize_import(request, event, created, duplicated, errors, skipped_inactive)
         return redirect("panel_attendees", event_pk=event.pk)
 
     return render(request, "panel/attendees_import_all.html", {

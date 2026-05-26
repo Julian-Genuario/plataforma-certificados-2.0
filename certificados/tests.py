@@ -95,11 +95,32 @@ class BrisaplusImportTests(TestCase):
             "<tr><td>Sin</td><td>Mail</td><td>no-es-mail</td><td>X</td></tr>"
             "</table></body></html>"
         )
-        clean, errors = parse_uploaded_file(self._upload(html, "exportado-usuarios.xls"))
+        clean, errors, skipped = parse_uploaded_file(self._upload(html, "exportado-usuarios.xls"))
         self.assertEqual(clean[0], ("Juan Pérez", "juan@mail.com"))
         self.assertEqual(clean[1], ("María Gómez", "maria@mail.com"))
         self.assertEqual(len(clean), 2)
         self.assertEqual(len(errors), 1)  # email inválido reportado
+        self.assertEqual(skipped, 0)
+
+    def test_only_active_subscription_filter(self):
+        html = (
+            "<html><body><table>"
+            "<tr><th>Nombre</th><th>Apellido</th><th>Email</th><th>Activado Suscripción</th></tr>"
+            "<tr><td>Ana</td><td>Activa</td><td>ana@mail.com</td><td>SI</td></tr>"
+            "<tr><td>Beto</td><td>Inactivo</td><td>beto@mail.com</td><td>NO</td></tr>"
+            "<tr><td>Caro</td><td>Activa</td><td>caro@mail.com</td><td>SI</td></tr>"
+            "</table></body></html>"
+        )
+        clean, errors, skipped = parse_uploaded_file(
+            self._upload(html, "exp.xls"), only_active=True
+        )
+        emails = [e for _, e in clean]
+        self.assertEqual(emails, ["ana@mail.com", "caro@mail.com"])
+        self.assertEqual(skipped, 1)  # Beto omitido por suscripción NO
+        # Sin el filtro, entran los tres.
+        clean2, _, skipped2 = parse_uploaded_file(self._upload(html, "exp.xls"), only_active=False)
+        self.assertEqual(len(clean2), 3)
+        self.assertEqual(skipped2, 0)
 
     def test_xls_that_is_not_html_is_rejected(self):
         from .attendees_io import ParseError
@@ -107,6 +128,7 @@ class BrisaplusImportTests(TestCase):
             parse_uploaded_file(self._upload(b"\xd0\xcf\x11\xe0binary", "viejo.xls"))
 
     def test_paste_still_works(self):
-        clean, errors = parse_text("Juan Perez, juan@mail.com\nMaria Gomez, maria@mail.com")
+        clean, errors, skipped = parse_text("Juan Perez, juan@mail.com\nMaria Gomez, maria@mail.com")
         self.assertEqual(len(clean), 2)
         self.assertEqual(errors, [])
+        self.assertEqual(skipped, 0)
