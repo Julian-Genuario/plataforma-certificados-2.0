@@ -1,12 +1,13 @@
 """Parsing helpers for the attendees import flow.
 
-Accepts CSV, XLSX or pasted text and yields cleaned (full_name, email) rows
-plus per-row error reports. Header detection is tolerant of common Spanish
-and English column names.
+Accepts CSV, XLSX, the brisaplus export (HTML table saved as .xls/.html) or
+pasted text, and yields cleaned (full_name, email) rows plus per-row error
+reports. Header detection is tolerant of common Spanish and English column
+names, and combines separate Nombre + Apellido columns into one full name.
 """
 import csv
 import io
-import re
+from html.parser import HTMLParser
 
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
@@ -16,6 +17,9 @@ NAME_HEADERS = {
     "nombre", "nombres", "nombre completo", "nombre y apellido",
     "apellido y nombre", "name", "full name", "full_name", "fullname",
     "participante", "alumno", "asistente",
+}
+SURNAME_HEADERS = {
+    "apellido", "apellidos", "last name", "lastname", "surname",
 }
 EMAIL_HEADERS = {
     "email", "e-mail", "e mail", "mail", "correo",
@@ -41,20 +45,23 @@ def _is_email_like(value):
 
 
 def _detect_columns(header_row):
-    """Given a header row, return (name_idx, email_idx) or (None, None) if
-    no recognizable headers were found.
+    """Given a header row, return (name_idx, surname_idx, email_idx). Any of
+    them may be None; returns (None, None, None) if no recognizable headers.
     """
     name_idx = None
+    surname_idx = None
     email_idx = None
     for i, cell in enumerate(header_row):
         n = _norm_header(cell)
         if n in NAME_HEADERS and name_idx is None:
             name_idx = i
+        elif n in SURNAME_HEADERS and surname_idx is None:
+            surname_idx = i
         elif n in EMAIL_HEADERS and email_idx is None:
             email_idx = i
-    if name_idx is None and email_idx is None:
-        return None, None
-    return name_idx, email_idx
+    if name_idx is None and surname_idx is None and email_idx is None:
+        return None, None, None
+    return name_idx, surname_idx, email_idx
 
 
 def _split_text_line(line):
@@ -66,14 +73,19 @@ def _split_text_line(line):
     return [line.strip()]
 
 
-def _clean_row(name_idx, email_idx, row):
-    """Pull name and email from row using detected indexes, or fall back to
-    'two columns where one looks like an email'.
+def _clean_row(name_idx, surname_idx, email_idx, row):
+    """Pull (full_name, email) from row using detected indexes, combining
+    Nombre + Apellido when both columns exist. Falls back to 'two columns
+    where one looks like an email' when there are no recognizable headers.
     """
-    if name_idx is not None or email_idx is not None:
-        name = (row[name_idx].strip() if name_idx is not None and name_idx < len(row) else "")
-        email = (row[email_idx].strip() if email_idx is not None and email_idx < len(row) else "")
-        return name, email
+    if name_idx is not None or surname_idx is not None or email_idx is not None:
+        def _cell(idx):
+            return row[idx].strip() if idx is not None and idx < len(row) else ""
+        name = _cell(name_idx)
+        surname = _cell(surname_idx)
+        full_name = (name + " " + surname).strip() if surname else name
+        email = _cell(email_idx)
+        return full_name, email
 
     cells = [str(c).strip() for c in row if str(c).strip()]
     if len(cells) < 2:
@@ -107,8 +119,8 @@ def _parse_rows(rows):
     if not rows:
         return [], []
 
-    name_idx, email_idx = _detect_columns(rows[0])
-    has_header = name_idx is not None or email_idx is not None
+    name_idx, surname_idx, email_idx = _detect_columns(rows[0])
+    has_header = name_idx is not None or surname_idx is not None or email_idx is not None
     data_rows = rows[1:] if has_header else rows
     start_line = 2 if has_header else 1
 
@@ -118,7 +130,7 @@ def _parse_rows(rows):
         line_no = start_line + offset
         if not any(str(c).strip() for c in row):
             continue
-        name, email = _clean_row(name_idx, email_idx, row)
+        name, email = _clean_row(name_idx, surname_idx, email_idx, row)
         err = _validate(name, email)
         raw = " | ".join(str(c) for c in row)
         if err:
@@ -178,11 +190,101 @@ def parse_text(text):
     return _parse_rows(rows)
 
 
+class _FirstTableParser(HTMLParser):
+    """Extracts the rows of the first <table> in an HTML document."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.rows = []
+        self._in_table = False
+        self._done = False
+        self._cur = None
+        self._in_cell = False
+        self._buf = []
+
+    def handle_starttag(self, tag, attrs):
+        if self._done:
+            return
+        if tag == "table":
+            self._in_table = True
+        elif self._in_table and tag == "tr":
+            self._cur = []
+        elif self._in_table and tag in ("td", "th"):
+            self._in_cell = True
+            self._buf = []
+
+    def handle_endtag(self, tag):
+        if self._done:
+            return
+        if tag in ("td", "th") and self._cur is not None:
+            self._cur.append("".join(self._buf).strip())
+            self._in_cell = False
+        elif tag == "tr" and self._cur is not None:
+            self.rows.append(self._cur)
+            self._cur = None
+        elif tag == "table" and self._in_table:
+            self._in_table = False
+            self._done = True  # solo la primera tabla
+
+    def handle_data(self, data):
+        if self._in_cell:
+            self._buf.append(data)
+
+
+def parse_html_table(file_obj):
+    """Parse the brisaplus user export: an HTML table saved with a .xls/.html
+    extension. Columns Nombre / Apellido / Email are detected by header.
+    """
+    raw = file_obj.read()
+    if isinstance(raw, bytes):
+        for enc in ("utf-8-sig", "utf-8", "windows-1252", "latin-1"):
+            try:
+                text = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            raise ParseError("No se pudo decodificar el archivo exportado.")
+    else:
+        text = raw
+
+    parser = _FirstTableParser()
+    parser.feed(text)
+    if not parser.rows:
+        raise ParseError(
+            "No se encontró ninguna tabla en el archivo. ¿Es el export de brisaplus?"
+        )
+    return _parse_rows(parser.rows)
+
+
+def _looks_like_html(file_obj):
+    head = file_obj.read(1024)
+    try:
+        file_obj.seek(0)
+    except (AttributeError, OSError):
+        pass
+    if isinstance(head, str):
+        head = head.encode("latin-1", "ignore")
+    head = head.lower()
+    return b"<html" in head or b"<table" in head or b"<!doctype html" in head
+
+
 def parse_uploaded_file(file_obj):
-    """Dispatch on filename extension."""
+    """Dispatch on filename extension (and content, for the brisaplus .xls)."""
     name = (getattr(file_obj, "name", "") or "").lower()
     if name.endswith(".xlsx"):
         return parse_xlsx(file_obj)
-    if name.endswith(".csv") or name.endswith(".txt"):
+    if name.endswith((".html", ".htm")):
+        return parse_html_table(file_obj)
+    if name.endswith(".xls"):
+        # brisaplus exporta una tabla HTML disfrazada de .xls
+        if _looks_like_html(file_obj):
+            return parse_html_table(file_obj)
+        raise ParseError(
+            "Ese .xls no es el export HTML de brisaplus. Convertilo a .xlsx o .csv."
+        )
+    if name.endswith((".csv", ".txt")):
         return parse_csv(file_obj)
-    raise ParseError("Formato no soportado. Subí un archivo .csv o .xlsx.")
+    raise ParseError(
+        "Formato no soportado. Subí .xlsx, .csv o el export (.xls) de brisaplus."
+    )

@@ -42,7 +42,7 @@
 <div class="card" style="max-width:760px;">
     <div class="card-header">
         <div class="card-title">Importar inscriptos</div>
-        <span class="badge badge-info">CSV / XLSX / pegar</span>
+        <span class="badge badge-info">brisaplus / CSV / XLSX / pegar</span>
     </div>
     <p style="color:#6b7280;font-size:13px;margin-bottom:20px;">
         Cargá la lista de inscriptos al evento <strong>{{ event.name }}</strong>. Cuando hay inscriptos cargados, la descarga del certificado requiere que <strong>nombre y email</strong> coincidan con uno de la lista (sin distinguir mayúsculas ni acentos).
@@ -52,10 +52,11 @@
         {% csrf_token %}
 
         <div class="form-group">
-            <label>Subir archivo (.csv o .xlsx)</label>
-            <input type="file" name="file" accept=".csv,.xlsx,.txt">
+            <label>Subir archivo (export de brisaplus, .csv o .xlsx)</label>
+            <input type="file" name="file" accept=".csv,.xlsx,.txt,.xls,.html,.htm">
             <div class="form-help">
-                Encabezados aceptados: <code>nombre</code>, <code>name</code>, <code>full_name</code>, <code>participante</code> | <code>email</code>, <code>e-mail</code>, <code>correo</code>. Si no hay encabezados, se toman las dos primeras columnas.
+                Podés subir directamente el <strong>export de usuarios de brisaplus</strong> (el <code>.xls</code> tal cual lo descargás). También acepta <code>.csv</code> y <code>.xlsx</code>.<br>
+                Encabezados reconocidos: <code>nombre</code> + <code>apellido</code> (se combinan), <code>name</code>, <code>participante</code> | <code>email</code>, <code>correo</code>. Si no hay encabezados, se toman las dos primeras columnas.
             </div>
         </div>
 

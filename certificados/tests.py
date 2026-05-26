@@ -8,8 +8,11 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from reportlab.pdfgen import canvas
 
+import io
+
 from .models import Event, CertificateTemplate, DownloadLog, RejectedAttempt, Attendee
 from .views import DUPLICATE_MESSAGE
+from .attendees_io import parse_uploaded_file, parse_text
 
 
 def _make_pdf_bytes():
@@ -75,3 +78,35 @@ class DownloadFlowTests(TestCase):
     def test_message_constant_matches_cronograma(self):
         self.assertIn("ya fue descargado", DUPLICATE_MESSAGE)
         self.assertIn("contacto.brisaplus@brisasg.com.ar", DUPLICATE_MESSAGE)
+
+
+class BrisaplusImportTests(TestCase):
+    def _upload(self, content, name):
+        f = io.BytesIO(content if isinstance(content, bytes) else content.encode("utf-8"))
+        f.name = name
+        return f
+
+    def test_brisaplus_html_export_combines_name_and_surname(self):
+        html = (
+            "<html><body><table>"
+            "<tr><th>Nombre</th><th>Apellido</th><th>Email</th><th>Pais</th></tr>"
+            "<tr><td>Juan</td><td>Pérez</td><td>juan@mail.com</td><td>Argentina</td></tr>"
+            "<tr><td>María</td><td>Gómez</td><td>maria@mail.com</td><td>Chile</td></tr>"
+            "<tr><td>Sin</td><td>Mail</td><td>no-es-mail</td><td>X</td></tr>"
+            "</table></body></html>"
+        )
+        clean, errors = parse_uploaded_file(self._upload(html, "exportado-usuarios.xls"))
+        self.assertEqual(clean[0], ("Juan Pérez", "juan@mail.com"))
+        self.assertEqual(clean[1], ("María Gómez", "maria@mail.com"))
+        self.assertEqual(len(clean), 2)
+        self.assertEqual(len(errors), 1)  # email inválido reportado
+
+    def test_xls_that_is_not_html_is_rejected(self):
+        from .attendees_io import ParseError
+        with self.assertRaises(ParseError):
+            parse_uploaded_file(self._upload(b"\xd0\xcf\x11\xe0binary", "viejo.xls"))
+
+    def test_paste_still_works(self):
+        clean, errors = parse_text("Juan Perez, juan@mail.com\nMaria Gomez, maria@mail.com")
+        self.assertEqual(len(clean), 2)
+        self.assertEqual(errors, [])
