@@ -52,6 +52,9 @@ class CertificateTemplate(models.Model):
     y = models.FloatField(default=300)
     font_size = models.FloatField(default=28)
     align = models.CharField(max_length=10, default="center")  # left/center/right
+    # Ancho del renglón (pt). 0 = sin auto-ajuste (tamaño fijo). Si > 0, el
+    # nombre reduce su tamaño de fuente para entrar en este ancho.
+    max_width = models.FloatField(default=0)
 
     # Config para field
     field_name = models.CharField(max_length=100, blank=True, default="full_name")

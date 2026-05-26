@@ -26,7 +26,7 @@ from .models import (
     Attendee,
     normalize_text,
 )
-from .views import build_pdf_bytes, _build_certificate_response, _get_client_ip
+from .views import build_pdf_bytes, _build_certificate_response, _get_client_ip, fit_font_size
 from .attendees_io import (
     parse_uploaded_file,
     parse_text,
@@ -213,6 +213,7 @@ def panel_template_form(request, pk=None):
         font_size = float(request.POST.get("font_size") or 28)
         align = request.POST.get("align", "center")
         field_name = request.POST.get("field_name", "full_name")
+        max_width = float(request.POST.get("max_width") or 0)
 
         if template:
             if request.FILES.get("pdf"):
@@ -224,6 +225,7 @@ def panel_template_form(request, pk=None):
             template.font_size = font_size
             template.align = align
             template.field_name = field_name
+            template.max_width = max_width
             template.save()
             messages.success(request, "Template actualizado.")
         else:
@@ -241,6 +243,7 @@ def panel_template_form(request, pk=None):
                 font_size=font_size,
                 align=align,
                 field_name=field_name,
+                max_width=max_width,
             )
             messages.success(request, "Template creado.")
 
@@ -255,6 +258,7 @@ def panel_template_form(request, pk=None):
         "tpl_y": float(template.y) if template and template.y else 300,
         "tpl_font_size": float(template.font_size) if template and template.font_size else 28,
         "tpl_page_number": int(template.page_number) if template and template.page_number else 0,
+        "tpl_max_width": float(template.max_width) if template and template.max_width else 0,
     }
 
     return render(request, "panel/template_form.html", {
@@ -285,9 +289,12 @@ def panel_template_preview(request, pk):
 
     tpl_x = float(template.x or 100)
     tpl_y = float(template.y or 300)
-    tpl_font_size = float(template.font_size or 28)
     tpl_align = (template.align or "center").lower()
     tpl_page = int(template.page_number or 0)
+    # Tamaño ajustado al ancho del renglón (coincide con el PDF final).
+    tpl_font_size = fit_font_size(
+        sample_name, "Helvetica", template.font_size or 28, getattr(template, "max_width", 0)
+    )
 
     try:
         reader = PdfReader(template.pdf.path)

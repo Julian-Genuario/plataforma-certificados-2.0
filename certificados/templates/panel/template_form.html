@@ -72,6 +72,18 @@
                 </div>
             </div>
 
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Ancho del renglon (0 = tamano fijo)</label>
+                    <input type="number" name="max_width" id="maxWidth" value="{{ tpl_max_width }}" step="1" min="0" oninput="renderPreview()">
+                    <div class="form-help">Si es mayor a 0, el nombre se achica solo para entrar en este ancho.</div>
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button type="button" class="btn btn-secondary" style="width:100%;" onclick="centerOnPage()">Centrar en la pagina</button>
+                </div>
+            </div>
+
             <div class="form-group">
                 <label>Nombre del campo (modo field)</label>
                 <input type="text" name="field_name" value="{{ template.field_name|default:'full_name' }}">
@@ -176,6 +188,13 @@ function loadPdfFromData(data) {
     });
 }
 
+function centerOnPage() {
+    if (!currentPdfW) { alert('Cargá primero un PDF para centrar.'); return; }
+    document.getElementById('inputX').value = Math.round(currentPdfW / 2);
+    document.getElementById('alignSel').value = 'center';
+    renderPreview();
+}
+
 function renderPreview() {
     if (!pdfDoc) return;
     if (pageRendering) return;
@@ -232,6 +251,7 @@ function drawOverlay() {
     var x = parseFloat(document.getElementById('inputX').value) || 100;
     var y = parseFloat(document.getElementById('inputY').value) || 300;
     var fontSize = parseFloat(document.getElementById('fontSize').value) || 28;
+    var maxWidth = parseFloat(document.getElementById('maxWidth').value) || 0;
     var align = document.getElementById('alignSel').value;
     var name = document.getElementById('previewName').value || 'Juan Perez';
 
@@ -239,7 +259,30 @@ function drawOverlay() {
     // PDF origin is bottom-left, canvas is top-left
     var px = x * pdfScale;
     var py = overlay.height - (y * pdfScale);
+    var maxWidthPx = maxWidth * pdfScale;
+
+    // Auto-ajuste: achicar la fuente si el nombre no entra en el ancho (igual que el PDF final)
     var scaledFontSize = fontSize * pdfScale;
+    ctx.font = scaledFontSize + 'px Helvetica, Arial, sans-serif';
+    var textWidth = ctx.measureText(name).width;
+    if (maxWidth > 0 && textWidth > maxWidthPx) {
+        scaledFontSize = Math.max(6 * pdfScale, scaledFontSize * (maxWidthPx / textWidth));
+        ctx.font = scaledFontSize + 'px Helvetica, Arial, sans-serif';
+        textWidth = ctx.measureText(name).width;
+    }
+
+    // Draw renglon box (ancho maximo)
+    if (maxWidth > 0) {
+        var boxLeft = (align === 'right') ? px - maxWidthPx : (align === 'left') ? px : px - maxWidthPx / 2;
+        var boxRight = boxLeft + maxWidthPx;
+        ctx.strokeStyle = 'rgba(34, 197, 94, 0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(boxLeft, py - 14); ctx.lineTo(boxLeft, py + 6);
+        ctx.moveTo(boxRight, py - 14); ctx.lineTo(boxRight, py + 6);
+        ctx.moveTo(boxLeft, py + 4); ctx.lineTo(boxRight, py + 4);
+        ctx.stroke();
+    }
 
     // Draw crosshair
     ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
@@ -257,10 +300,8 @@ function drawOverlay() {
     ctx.stroke();
 
     // Draw name text
-    ctx.font = scaledFontSize + 'px Helvetica, Arial, sans-serif';
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
 
-    var textWidth = ctx.measureText(name).width;
     var drawX;
     if (align === 'center') {
         drawX = px - textWidth / 2;

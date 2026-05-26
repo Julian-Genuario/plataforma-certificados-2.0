@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 import io
 
 from .models import Event, CertificateTemplate, DownloadLog, RejectedAttempt, Attendee
-from .views import DUPLICATE_MESSAGE
+from .views import DUPLICATE_MESSAGE, fit_font_size
 from .attendees_io import parse_uploaded_file, parse_text
 
 
@@ -132,3 +132,22 @@ class BrisaplusImportTests(TestCase):
         self.assertEqual(len(clean), 2)
         self.assertEqual(errors, [])
         self.assertEqual(skipped, 0)
+
+
+class FitFontSizeTests(TestCase):
+    def test_no_max_width_returns_base(self):
+        self.assertEqual(fit_font_size("Juan Perez", "Helvetica", 28, 0), 28)
+
+    def test_short_name_keeps_base(self):
+        self.assertEqual(fit_font_size("Ana", "Helvetica", 28, 500), 28)
+
+    def test_long_name_shrinks_to_fit(self):
+        from reportlab.pdfbase import pdfmetrics
+        name = "María Fernanda Rodríguez Etcheverry de los Santos"
+        size = fit_font_size(name, "Helvetica", 40, 200)
+        self.assertLess(size, 40)
+        self.assertLessEqual(pdfmetrics.stringWidth(name, "Helvetica", size), 200.5)
+
+    def test_never_below_min(self):
+        size = fit_font_size("x" * 500, "Helvetica", 40, 10, min_size=6)
+        self.assertEqual(size, 6)

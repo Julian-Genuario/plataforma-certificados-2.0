@@ -42,6 +42,21 @@ def _log_rejected(event, request, reason, name="", email=""):
     )
 
 
+def fit_font_size(text, font_name, base_size, max_width, min_size=6.0):
+    """Return a font size <= base_size so that `text` fits within `max_width`.
+
+    If max_width <= 0 (auto-ajuste desactivado) or the text already fits,
+    returns base_size unchanged. Never returns below min_size.
+    """
+    base_size = float(base_size)
+    if not text or not max_width or max_width <= 0:
+        return base_size
+    width = pdfmetrics.stringWidth(text, font_name, base_size)
+    if width <= max_width:
+        return base_size
+    return max(min_size, base_size * (max_width / width))
+
+
 def build_pdf_bytes(template, full_name):
     """Generate the certificate PDF bytes for the given template + name.
 
@@ -63,7 +78,9 @@ def build_pdf_bytes(template, full_name):
             c = canvas.Canvas(packet, pagesize=(width, height))
 
             font_name = "Helvetica"
-            font_size = float(template.font_size)
+            font_size = fit_font_size(
+                full_name, font_name, template.font_size, getattr(template, "max_width", 0)
+            )
             c.setFont(font_name, font_size)
 
             x = float(template.x)
