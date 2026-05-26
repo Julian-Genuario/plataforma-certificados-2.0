@@ -12,14 +12,34 @@ from .models import (
     Event,
     CertificateTemplate,
     DownloadLog,
+    RejectedAttempt,
     Attendee,
     normalize_text,
     normalize_email,
 )
 
 
+# Mensaje exacto definido en el cronograma para descargas duplicadas.
+DUPLICATE_MESSAGE = (
+    "Verificamos que este certificado ya fue descargado. "
+    "Para consultas, contactarse con contacto.brisaplus@brisasg.com.ar."
+)
+
+
 def _get_client_ip(request):
     return request.META.get("REMOTE_ADDR")
+
+
+def _log_rejected(event, request, reason, name="", email=""):
+    """Registra un intento de descarga rechazado para métricas y seguimiento."""
+    RejectedAttempt.objects.create(
+        event=event,
+        name_entered=(name or "")[:200],
+        email_entered=(email or "")[:254],
+        reason=reason,
+        ip=_get_client_ip(request),
+        user_agent=request.META.get("HTTP_USER_AGENT", ""),
+    )
 
 
 def build_pdf_bytes(template, full_name):
@@ -101,34 +121,58 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
     if len(full_name) > 200:
         return HttpResponseBadRequest("Nombre demasiado largo (máx 200).")
 
-    def _fail(msg):
+    def _fail(msg, reason):
+        _log_rejected(event, request, reason, name=full_name, email=email)
         messages.error(request, msg)
         if failure_redirect == "home":
             return redirect("home")
         return redirect("event_page", slug=event.slug)
 
+    matched_attendee = None
+
     if not manual:
         has_attendees = event.attendees.exists()
 
         if event.require_email and not email:
-            return _fail("Tenés que ingresar tu email.")
+            return _fail("Tenés que ingresar tu email.", "missing_email")
 
         if has_attendees:
             if not event.require_email:
                 # Lista cargada pero no se pide email: solo validamos por nombre
                 name_norm = normalize_text(full_name)
-                match = event.attendees.filter(full_name_normalized=name_norm).first()
+                matched_attendee = event.attendees.filter(full_name_normalized=name_norm).first()
             else:
-                match = _find_attendee(event, full_name, email)
-            if match is None:
-                return _fail("No te encontramos en la lista de inscriptos. Verificá los datos.")
-            full_name = match.full_name
+                matched_attendee = _find_attendee(event, full_name, email)
+            if matched_attendee is None:
+                return _fail(
+                    "No te encontramos en la lista de inscriptos. Verificá los datos.",
+                    "not_in_list",
+                )
+            full_name = matched_attendee.full_name
+
+        # Bloqueo de descargas duplicadas: ¿esta persona ya descargó este certificado?
+        prior = DownloadLog.objects.filter(event=event, manual=False)
+        if matched_attendee is not None:
+            already_downloaded = prior.filter(attendee=matched_attendee).exists()
+        elif email:
+            already_downloaded = prior.filter(
+                email_normalized=normalize_email(email)
+            ).exists()
+        else:
+            already_downloaded = prior.filter(
+                name_normalized=normalize_text(full_name)
+            ).exists()
+        if already_downloaded:
+            return _fail(DUPLICATE_MESSAGE, "duplicate")
 
     template = get_object_or_404(CertificateTemplate, event=event)
 
     DownloadLog.objects.create(
         event=event,
         name_entered=full_name,
+        name_normalized=normalize_text(full_name),
+        email_normalized=normalize_email(email),
+        attendee=matched_attendee,
         ip=_get_client_ip(request),
         user_agent=request.META.get("HTTP_USER_AGENT", ""),
         manual=manual,

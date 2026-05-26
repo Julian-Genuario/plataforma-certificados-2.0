@@ -70,9 +70,46 @@ class DownloadLog(models.Model):
         default=False,
         help_text="Generado manualmente desde el panel",
     )
+    # Identidad normalizada, usada para detectar descargas duplicadas.
+    attendee = models.ForeignKey(
+        "Attendee",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="downloads",
+    )
+    name_normalized = models.CharField(max_length=200, db_index=True, blank=True, default="")
+    email_normalized = models.EmailField(db_index=True, blank=True, default="")
 
     def __str__(self):
         return f"{self.event.slug} - {self.name_entered}"
+
+
+class RejectedAttempt(models.Model):
+    """Intento de descarga rechazado (no habilitado, duplicado, datos faltantes)."""
+
+    REASON_CHOICES = [
+        ("not_in_list", "No está en la lista de inscriptos"),
+        ("duplicate", "Certificado ya descargado"),
+        ("missing_email", "Email no ingresado"),
+        ("missing_name", "Nombre no ingresado"),
+    ]
+
+    event = models.ForeignKey(
+        Event, on_delete=models.CASCADE, related_name="rejected_attempts"
+    )
+    name_entered = models.CharField(max_length=200, blank=True, default="")
+    email_entered = models.EmailField(blank=True, default="")
+    reason = models.CharField(max_length=20, choices=REASON_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.event.slug} - {self.name_entered} ({self.reason})"
 
 
 class Attendee(models.Model):

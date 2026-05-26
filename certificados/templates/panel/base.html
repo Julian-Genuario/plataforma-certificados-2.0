@@ -669,6 +669,9 @@
         <a href="{% url 'panel_logs' %}" class="{% if active_page == 'logs' %}active{% endif %}">
             <span class="nav-icon">&#8681;</span> Descargas
         </a>
+        <a href="{% url 'panel_rejected' %}" class="{% if active_page == 'rejected' %}active{% endif %}">
+            <span class="nav-icon">&#9888;</span> Rechazados
+        </a>
 
         <div class="sidebar-section">Sistema</div>
         <a href="{% url 'panel_users' %}" class="{% if active_page == 'users' %}active{% endif %}">

@@ -82,6 +82,11 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 try:
     import whitenoise  # noqa: F401
     STORAGES = {
+        # Debe incluir "default" o Django no encuentra el storage de uploads
+        # (subida de PDF de plantilla) cuando se define STORAGES explícitamente.
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
         "staticfiles": {
             "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
         },

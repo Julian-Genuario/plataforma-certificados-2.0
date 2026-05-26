@@ -38,6 +38,10 @@ urlpatterns = [
     path("descargas/", v.panel_logs, name="panel_logs"),
     path("descargas/exportar/", v.panel_logs_export, name="panel_logs_export"),
 
+    # Intentos rechazados
+    path("rechazados/", v.panel_rejected, name="panel_rejected"),
+    path("rechazados/exportar/", v.panel_rejected_export, name="panel_rejected_export"),
+
     # Users
     path("usuarios/", v.panel_users, name="panel_users"),
     path("usuarios/crear/", v.panel_user_form, name="panel_user_create"),

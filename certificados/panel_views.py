@@ -18,7 +18,14 @@ from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 
-from .models import Event, CertificateTemplate, DownloadLog, Attendee
+from .models import (
+    Event,
+    CertificateTemplate,
+    DownloadLog,
+    RejectedAttempt,
+    Attendee,
+    normalize_text,
+)
 from .views import build_pdf_bytes, _build_certificate_response, _get_client_ip
 from .attendees_io import (
     parse_uploaded_file,
@@ -62,6 +69,10 @@ def panel_dashboard(request):
     active_events = Event.objects.filter(active=True).count()
     total_downloads = DownloadLog.objects.count()
     today_downloads = DownloadLog.objects.filter(created_at__gte=today_start).count()
+    manual_downloads = DownloadLog.objects.filter(manual=True).count()
+    rejected_total = RejectedAttempt.objects.count()
+    rejected_today = RejectedAttempt.objects.filter(created_at__gte=today_start).count()
+    duplicate_total = RejectedAttempt.objects.filter(reason="duplicate").count()
 
     daily_downloads = (
         DownloadLog.objects
@@ -93,6 +104,10 @@ def panel_dashboard(request):
         "chart_data": chart_data,
         "recent_logs": recent_logs,
         "latest_event": latest_event,
+        "manual_downloads": manual_downloads,
+        "rejected_total": rejected_total,
+        "rejected_today": rejected_today,
+        "duplicate_total": duplicate_total,
     })
 
 
@@ -462,6 +477,7 @@ def panel_generate_bulk(request):
             DownloadLog.objects.create(
                 event=event,
                 name_entered=name,
+                name_normalized=normalize_text(name),
                 ip=client_ip,
                 user_agent=user_agent,
                 manual=True,
@@ -573,6 +589,88 @@ def panel_logs_export(request):
 
     response = StreamingHttpResponse(generate(), content_type="text/csv")
     response["Content-Disposition"] = 'attachment; filename="descargas.csv"'
+    return response
+
+
+# ── Intentos rechazados ─────────────────────────
+
+def _filter_rejected(request):
+    qs = RejectedAttempt.objects.select_related("event").order_by("-created_at")
+    event_filter = request.GET.get("event")
+    search = request.GET.get("search", "").strip()
+    reason_filter = request.GET.get("reason", "")
+    date_from = request.GET.get("date_from")
+    date_to = request.GET.get("date_to")
+
+    if event_filter:
+        qs = qs.filter(event_id=event_filter)
+    if search:
+        qs = qs.filter(Q(name_entered__icontains=search) | Q(email_entered__icontains=search))
+    if reason_filter:
+        qs = qs.filter(reason=reason_filter)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+    return qs
+
+
+@login_required(login_url="panel_login")
+def panel_rejected(request):
+    qs = _filter_rejected(request)
+    events = Event.objects.order_by("name")
+
+    page = int(request.GET.get("page", 1) or 1)
+    per_page = 25
+    total = qs.count()
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(max(page, 1), total_pages)
+    rows = qs[(page - 1) * per_page : page * per_page]
+
+    return render(request, "panel/rejected.html", {
+        "active_page": "rejected",
+        "rejected": rows,
+        "events": events,
+        "reason_choices": RejectedAttempt.REASON_CHOICES,
+        "event_filter": request.GET.get("event", ""),
+        "search": request.GET.get("search", "").strip(),
+        "reason_filter": request.GET.get("reason", ""),
+        "date_from": request.GET.get("date_from") or "",
+        "date_to": request.GET.get("date_to") or "",
+        "page": page,
+        "total_pages": total_pages,
+        "total": total,
+    })
+
+
+@login_required(login_url="panel_login")
+def panel_rejected_export(request):
+    qs = _filter_rejected(request)
+    reason_labels = dict(RejectedAttempt.REASON_CHOICES)
+
+    def generate():
+        row_buffer = BytesIO()
+        writer = csv.writer(row_buffer, dialect="excel")
+        writer.writerow(["Evento", "Nombre", "Email", "Motivo", "Fecha", "IP"])
+        yield row_buffer.getvalue().decode("utf-8")
+        row_buffer.seek(0)
+        row_buffer.truncate()
+
+        for r in qs.iterator():
+            writer.writerow([
+                r.event.name,
+                r.name_entered,
+                r.email_entered,
+                reason_labels.get(r.reason, r.reason),
+                r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                r.ip or "",
+            ])
+            yield row_buffer.getvalue().decode("utf-8")
+            row_buffer.seek(0)
+            row_buffer.truncate()
+
+    response = StreamingHttpResponse(generate(), content_type="text/csv")
+    response["Content-Disposition"] = 'attachment; filename="intentos-rechazados.csv"'
     return response
 
 

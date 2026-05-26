@@ -19,6 +19,16 @@
         <div class="stat-value stat-warning">{{ today_downloads }}</div>
     </div>
     <div class="stat-card">
+        <div class="stat-label">Entregas manuales</div>
+        <div class="stat-value stat-info">{{ manual_downloads }}</div>
+        <div class="stat-sub">generadas desde el panel</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Intentos rechazados</div>
+        <div class="stat-value stat-danger">{{ rejected_total }}</div>
+        <div class="stat-sub">{{ rejected_today }} hoy &middot; {{ duplicate_total }} duplicado{{ duplicate_total|pluralize:"s" }}</div>
+    </div>
+    <div class="stat-card">
         <div class="stat-label">Ultimo evento</div>
         <div class="stat-value" style="font-size:20px;">{{ latest_event.name|default:"Ninguno" }}</div>
     </div>
