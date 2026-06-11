@@ -1,6 +1,7 @@
 from io import BytesIO
 
 from django.contrib import messages
+from django.db.models import Q
 from django.http import FileResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -170,7 +171,15 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
         # Bloqueo de descargas duplicadas: ¿esta persona ya descargó este certificado?
         prior = DownloadLog.objects.filter(event=event, manual=False)
         if matched_attendee is not None:
-            already_downloaded = prior.filter(attendee=matched_attendee).exists()
+            # No alcanza con el FK: al reimportar la lista con "Reemplazar",
+            # los inscriptos se recrean y el FK del log queda en NULL. La
+            # identidad normalizada del log mantiene el bloqueo entre imports.
+            identity = Q(attendee=matched_attendee)
+            if event.require_email:
+                identity |= Q(email_normalized=matched_attendee.email_normalized)
+            else:
+                identity |= Q(name_normalized=matched_attendee.full_name_normalized)
+            already_downloaded = prior.filter(identity).exists()
         elif email:
             already_downloaded = prior.filter(
                 email_normalized=normalize_email(email)

@@ -64,6 +64,36 @@ class DownloadFlowTests(TestCase):
         )
         self.assertContains(follow, "contacto.brisaplus@brisasg.com.ar")
 
+    def test_duplicate_blocked_after_list_reimport(self):
+        # El flujo real de sync: la persona descarga, después se re-sube el
+        # export con "Reemplazar lista existente" (borra y recrea inscriptos).
+        # La descarga previa tiene que seguir bloqueada.
+        self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"})
+        self.assertEqual(DownloadLog.objects.count(), 1)
+
+        self.event.attendees.all().delete()
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+
+        resp = self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(DownloadLog.objects.count(), 1)
+        self.assertEqual(RejectedAttempt.objects.get().reason, "duplicate")
+
+    def test_duplicate_blocked_after_reimport_name_only_event(self):
+        # Mismo caso pero en un evento sin email requerido (valida solo nombre).
+        self.event.require_email = False
+        self.event.save()
+        self.client.post(self.url, {"full_name": "Juan Pérez"})
+        self.assertEqual(DownloadLog.objects.count(), 1)
+
+        self.event.attendees.all().delete()
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+
+        resp = self.client.post(self.url, {"full_name": "Juan Pérez"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(DownloadLog.objects.count(), 1)
+        self.assertEqual(RejectedAttempt.objects.get().reason, "duplicate")
+
     def test_not_in_list_rejected(self):
         resp = self.client.post(self.url, {"full_name": "Otro Nombre", "email": "otro@mail.com"})
         self.assertEqual(resp.status_code, 302)
@@ -132,6 +162,12 @@ class BrisaplusImportTests(TestCase):
         self.assertEqual(len(clean), 2)
         self.assertEqual(errors, [])
         self.assertEqual(skipped, 0)
+
+
+class PublicUrlTests(TestCase):
+    def test_event_page_url_has_single_e_prefix(self):
+        # La URL pública que se difunde: /e/<slug>/, no /e/e/<slug>/.
+        self.assertEqual(reverse("event_page", kwargs={"slug": "vacunologia"}), "/e/vacunologia/")
 
 
 class FitFontSizeTests(TestCase):
