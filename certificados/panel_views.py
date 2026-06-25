@@ -26,7 +26,7 @@ from .models import (
     Attendee,
     normalize_text,
 )
-from .views import build_pdf_bytes, _build_certificate_response, _get_client_ip, fit_font_size
+from .views import build_pdf_bytes, _build_certificate_response, _get_client_ip, fit_font_size, baseline_offset
 from .attendees_io import (
     parse_uploaded_file,
     parse_text,
@@ -212,6 +212,7 @@ def panel_template_form(request, pk=None):
         y = float(request.POST.get("y") or 300)
         font_size = float(request.POST.get("font_size") or 28)
         align = request.POST.get("align", "center")
+        valign = request.POST.get("valign", "baseline")
         field_name = request.POST.get("field_name", "full_name")
         max_width = float(request.POST.get("max_width") or 0)
 
@@ -224,6 +225,7 @@ def panel_template_form(request, pk=None):
             template.y = y
             template.font_size = font_size
             template.align = align
+            template.valign = valign
             template.field_name = field_name
             template.max_width = max_width
             template.save()
@@ -242,6 +244,7 @@ def panel_template_form(request, pk=None):
                 y=y,
                 font_size=font_size,
                 align=align,
+                valign=valign,
                 field_name=field_name,
                 max_width=max_width,
             )
@@ -253,12 +256,20 @@ def panel_template_form(request, pk=None):
         id__in=CertificateTemplate.objects.values_list("event_id", flat=True)
     )
 
+    # Formateamos los números como string con punto decimal. Si se pasara el
+    # float crudo, Django lo localiza a "421,125" (coma) y el <input type=number>
+    # lo rechaza, dejando el campo vacío al editar. "%g" además limpia el ruido
+    # de coma flotante (505.34999... -> 505.35).
+    def _num(value, default):
+        return ("%g" % float(value)) if value else default
+
     defaults = {
-        "tpl_x": float(template.x) if template and template.x else 100,
-        "tpl_y": float(template.y) if template and template.y else 300,
-        "tpl_font_size": float(template.font_size) if template and template.font_size else 28,
+        "tpl_x": _num(template.x, "100") if template else "100",
+        "tpl_y": _num(template.y, "300") if template else "300",
+        "tpl_font_size": _num(template.font_size, "28") if template else "28",
         "tpl_page_number": int(template.page_number) if template and template.page_number else 0,
-        "tpl_max_width": float(template.max_width) if template and template.max_width else 0,
+        "tpl_max_width": _num(template.max_width, "0") if template else "0",
+        "tpl_valign": (template.valign or "baseline") if template else "baseline",
     }
 
     return render(request, "panel/template_form.html", {
@@ -290,6 +301,7 @@ def panel_template_preview(request, pk):
     tpl_x = float(template.x or 100)
     tpl_y = float(template.y or 300)
     tpl_align = (template.align or "center").lower()
+    tpl_valign = (template.valign or "baseline").lower()
     tpl_page = int(template.page_number or 0)
     # Tamaño ajustado al ancho del renglón (coincide con el PDF final).
     tpl_font_size = fit_font_size(
@@ -318,7 +330,8 @@ def panel_template_preview(request, pk):
         else:
             draw_x = tpl_x
 
-        c.drawString(draw_x, tpl_y, sample_name)
+        draw_y = tpl_y - baseline_offset("Helvetica", tpl_font_size, tpl_valign)
+        c.drawString(draw_x, draw_y, sample_name)
         c.save()
         packet.seek(0)
 
@@ -382,9 +395,17 @@ def panel_template_preview(request, pk):
         else:
             tx = cx
 
-        draw.text((tx, cy - text_h), sample_name, fill=(30, 60, 90), font=font)
+        # Anclaje vertical en pixeles (cy = punto Y). top -> texto cuelga debajo,
+        # baseline -> texto apoyado sobre la linea, igual sentido que el PDF real.
+        if tpl_valign == "top":
+            text_top = cy
+        elif tpl_valign == "middle":
+            text_top = cy - text_h // 2
+        else:
+            text_top = cy - text_h
+        draw.text((tx, text_top), sample_name, fill=(30, 60, 90), font=font)
 
-        info = f"PDF: {int(pdf_w)}x{int(pdf_h)}pt  |  X={tpl_x}  Y={tpl_y}  |  Fuente: {tpl_font_size}pt  |  Alineacion: {tpl_align}"
+        info = f"PDF: {int(pdf_w)}x{int(pdf_h)}pt  |  X={tpl_x}  Y={tpl_y}  |  Fuente: {tpl_font_size}pt  |  Alin: {tpl_align}/{tpl_valign}"
         draw.rectangle([(0, img_h - 28), (img_w, img_h)], fill=(245, 245, 245))
         draw.text((10, img_h - 22), info, fill=(120, 120, 120))
 

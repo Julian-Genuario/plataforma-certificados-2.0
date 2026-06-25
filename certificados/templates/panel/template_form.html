@@ -49,18 +49,18 @@
                 </div>
                 <div class="form-group">
                     <label>Tamano de fuente</label>
-                    <input type="number" name="font_size" id="fontSize" value="{{ tpl_font_size }}" step="0.5" min="1" oninput="renderPreview()">
+                    <input type="number" name="font_size" id="fontSize" value="{{ tpl_font_size }}" step="any" min="1" oninput="renderPreview()">
                 </div>
             </div>
 
             <div class="form-row-3">
                 <div class="form-group">
                     <label>X (horizontal)</label>
-                    <input type="number" name="x" id="inputX" value="{{ tpl_x }}" step="1" oninput="renderPreview()">
+                    <input type="number" name="x" id="inputX" value="{{ tpl_x }}" step="any" oninput="renderPreview()">
                 </div>
                 <div class="form-group">
                     <label>Y (vertical)</label>
-                    <input type="number" name="y" id="inputY" value="{{ tpl_y }}" step="1" oninput="renderPreview()">
+                    <input type="number" name="y" id="inputY" value="{{ tpl_y }}" step="any" oninput="renderPreview()">
                 </div>
                 <div class="form-group">
                     <label>Alineacion</label>
@@ -70,12 +70,21 @@
                         <option value="right" {% if template.align == 'right' %}selected{% endif %}>Derecha</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label>Anclaje vertical</label>
+                    <select name="valign" id="valignSel" onchange="renderPreview()">
+                        <option value="baseline" {% if tpl_valign == 'baseline' or not template %}selected{% endif %}>Base (sobre el renglon)</option>
+                        <option value="middle" {% if tpl_valign == 'middle' %}selected{% endif %}>Centro</option>
+                        <option value="top" {% if tpl_valign == 'top' %}selected{% endif %}>Arriba</option>
+                    </select>
+                    <div class="form-help">Que parte del nombre cae sobre el punto Y.</div>
+                </div>
             </div>
 
             <div class="form-row">
                 <div class="form-group">
                     <label>Ancho del renglon (0 = tamano fijo)</label>
-                    <input type="number" name="max_width" id="maxWidth" value="{{ tpl_max_width }}" step="1" min="0" oninput="renderPreview()">
+                    <input type="number" name="max_width" id="maxWidth" value="{{ tpl_max_width }}" step="any" min="0" oninput="renderPreview()">
                     <div class="form-help">Si es mayor a 0, el nombre se achica solo para entrar en este ancho.</div>
                 </div>
                 <div class="form-group">
@@ -111,7 +120,7 @@
             <canvas id="overlayCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;cursor:crosshair;"></canvas>
         </div>
         <div style="margin-top:8px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;color:#166534;text-align:center;">
-            Hace click en el PDF para posicionar el nombre
+            Arrastra el nombre sobre el PDF para ubicarlo. Despues afinalo con las flechas del teclado (Shift = 10pt).
         </div>
 
         <div style="margin-top:12px;font-size:12px;color:#6b7280;text-align:center;">
@@ -131,21 +140,76 @@ var pageRendering = false;
 var currentPdfW = 0;
 var currentPdfH = 0;
 
-// Click on PDF to set position
-document.getElementById('overlayCanvas').addEventListener('click', function(e) {
+// Arrastrar el nombre sobre el PDF para posicionarlo.
+var isDragging = false;
+
+function eventToPdfCoords(e) {
+    var overlay = document.getElementById('overlayCanvas');
+    var rect = overlay.getBoundingClientRect();
+    var cssX = e.clientX - rect.left;
+    var cssY = e.clientY - rect.top;
+    // rect (px CSS) -> puntos PDF. overlay.width/pdfScale = ancho del PDF en pt.
+    var pdfW = overlay.width / pdfScale;
+    var pdfH = overlay.height / pdfScale;
+    var pdfX = Math.round((cssX / rect.width) * pdfW);
+    var pdfY = Math.round(((rect.height - cssY) / rect.height) * pdfH);
+    return {x: pdfX, y: pdfY};
+}
+
+function setPosFromEvent(e) {
     if (!pdfDoc) return;
-    var rect = this.getBoundingClientRect();
-    var clickX = e.clientX - rect.left;
-    var clickY = e.clientY - rect.top;
+    var p = eventToPdfCoords(e);
+    document.getElementById('inputX').value = p.x;
+    document.getElementById('inputY').value = p.y;
+    drawOverlay();  // sólo redibuja el overlay (barato), no re-renderiza el PDF
+}
 
-    // Convert canvas pixels to PDF coordinates
-    var pdfX = Math.round(clickX / pdfScale);
-    var pdfY = Math.round((this.height - clickY) / pdfScale);
+(function () {
+    var overlay = document.getElementById('overlayCanvas');
+    overlay.addEventListener('mousedown', function (e) {
+        if (!pdfDoc) return;
+        isDragging = true;
+        overlay.style.cursor = 'grabbing';
+        setPosFromEvent(e);
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', function (e) {
+        if (!isDragging) return;
+        setPosFromEvent(e);
+    });
+    document.addEventListener('mouseup', function () {
+        if (!isDragging) return;
+        isDragging = false;
+        overlay.style.cursor = 'grab';
+    });
+    overlay.style.cursor = 'grab';
 
-    document.getElementById('inputX').value = pdfX;
-    document.getElementById('inputY').value = pdfY;
-    renderPreview();
-});
+    // Flechas: empuje fino (1pt, Shift = 10pt). Y respeta origen PDF (arriba = +Y).
+    overlay.setAttribute('tabindex', '0');
+    function nudge(e) {
+        if (!pdfDoc) return;
+        var step = e.shiftKey ? 10 : 1;
+        var inX = document.getElementById('inputX');
+        var inY = document.getElementById('inputY');
+        var x = parseFloat(inX.value) || 0;
+        var y = parseFloat(inY.value) || 0;
+        var handled = true;
+        if (e.key === 'ArrowLeft') x -= step;
+        else if (e.key === 'ArrowRight') x += step;
+        else if (e.key === 'ArrowUp') y += step;
+        else if (e.key === 'ArrowDown') y -= step;
+        else handled = false;
+        if (!handled) return;
+        e.preventDefault();
+        inX.value = Math.round(x);
+        inY.value = Math.round(y);
+        drawOverlay();
+    }
+    overlay.addEventListener('keydown', nudge);
+    var cont = document.getElementById('previewContainer');
+    cont.setAttribute('tabindex', '0');
+    cont.addEventListener('keydown', nudge);
+})();
 
 // Set worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -253,6 +317,7 @@ function drawOverlay() {
     var fontSize = parseFloat(document.getElementById('fontSize').value) || 28;
     var maxWidth = parseFloat(document.getElementById('maxWidth').value) || 0;
     var align = document.getElementById('alignSel').value;
+    var valign = document.getElementById('valignSel').value;
     var name = document.getElementById('previewName').value || 'Juan Perez';
 
     // Convert PDF coordinates to canvas pixels
@@ -311,7 +376,15 @@ function drawOverlay() {
         drawX = px;
     }
 
-    ctx.fillText(name, drawX, py);
+    // Anclaje vertical: Helvetica ascent ~0.718. El baseline cae por debajo del
+    // punto Y (mayor py) segun el anclaje, igual que en el PDF (draw_y = y - offset).
+    var ascent = 0.718;
+    var offsetPts = (valign === 'top') ? ascent * fontSize
+                  : (valign === 'middle') ? ascent * fontSize / 2
+                  : 0;
+    var textBaselineY = py + offsetPts * pdfScale;
+
+    ctx.fillText(name, drawX, textBaselineY);
 
     // Draw semi-transparent guide line across full width
     ctx.strokeStyle = 'rgba(59, 130, 246, 0.3)';

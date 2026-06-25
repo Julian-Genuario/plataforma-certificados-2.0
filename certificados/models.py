@@ -52,6 +52,11 @@ class CertificateTemplate(models.Model):
     y = models.FloatField(default=300)
     font_size = models.FloatField(default=28)
     align = models.CharField(max_length=10, default="center")  # left/center/right
+    # Anclaje vertical: qué parte del texto cae sobre el punto Y.
+    #   baseline = base de las letras (comportamiento histórico)
+    #   middle   = centro vertical del texto
+    #   top      = tope del texto
+    valign = models.CharField(max_length=10, default="baseline")  # baseline/middle/top
     # Ancho del renglón (pt). 0 = sin auto-ajuste (tamaño fijo). Si > 0, el
     # nombre reduce su tamaño de fuente para entrar en este ancho.
     max_width = models.FloatField(default=0)

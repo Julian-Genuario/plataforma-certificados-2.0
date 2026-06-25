@@ -58,6 +58,27 @@ def fit_font_size(text, font_name, base_size, max_width, min_size=6.0):
     return max(min_size, base_size * (max_width / width))
 
 
+def baseline_offset(font_name, font_size, valign):
+    """Cuánto restar al Y para anclar el texto según `valign`.
+
+    `drawString` siempre dibuja en el baseline. Para anclar por el tope o el
+    centro corremos el Y usando las métricas de la fuente.
+        baseline -> 0 (sin corrimiento)
+        top      -> ascent
+        middle   -> ascent / 2
+    """
+    valign = (valign or "baseline").lower()
+    if valign == "baseline":
+        return 0.0
+    face = pdfmetrics.getFont(font_name).face
+    ascent_pt = face.ascent / 1000.0 * float(font_size)
+    if valign == "top":
+        return ascent_pt
+    if valign == "middle":
+        return ascent_pt / 2.0
+    return 0.0
+
+
 def build_pdf_bytes(template, full_name):
     """Generate the certificate PDF bytes for the given template + name.
 
@@ -97,7 +118,8 @@ def build_pdf_bytes(template, full_name):
             else:
                 draw_x = x
 
-            c.drawString(draw_x, y, full_name)
+            draw_y = y - baseline_offset(font_name, font_size, getattr(template, "valign", "baseline"))
+            c.drawString(draw_x, draw_y, full_name)
             c.save()
 
             packet.seek(0)

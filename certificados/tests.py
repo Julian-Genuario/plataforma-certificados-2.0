@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 import io
 
 from .models import Event, CertificateTemplate, DownloadLog, RejectedAttempt, Attendee
-from .views import DUPLICATE_MESSAGE, fit_font_size
+from .views import DUPLICATE_MESSAGE, fit_font_size, baseline_offset
 from .attendees_io import parse_uploaded_file, parse_text
 
 
@@ -187,3 +187,28 @@ class FitFontSizeTests(TestCase):
     def test_never_below_min(self):
         size = fit_font_size("x" * 500, "Helvetica", 40, 10, min_size=6)
         self.assertEqual(size, 6)
+
+
+class BaselineOffsetTests(TestCase):
+    def test_baseline_is_zero(self):
+        self.assertEqual(baseline_offset("Helvetica", 28, "baseline"), 0.0)
+
+    def test_unknown_or_empty_falls_back_to_baseline(self):
+        self.assertEqual(baseline_offset("Helvetica", 28, ""), 0.0)
+        self.assertEqual(baseline_offset("Helvetica", 28, "nonsense"), 0.0)
+
+    def test_top_equals_ascent(self):
+        # Helvetica ascent = 718/1000.
+        self.assertAlmostEqual(baseline_offset("Helvetica", 100, "top"), 71.8, places=3)
+
+    def test_middle_is_half_of_top(self):
+        top = baseline_offset("Helvetica", 80, "top")
+        middle = baseline_offset("Helvetica", 80, "middle")
+        self.assertAlmostEqual(middle, top / 2.0, places=6)
+
+    def test_scales_linearly_with_font_size(self):
+        self.assertAlmostEqual(
+            baseline_offset("Helvetica", 40, "top"),
+            2 * baseline_offset("Helvetica", 20, "top"),
+            places=6,
+        )
