@@ -211,7 +211,7 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
                 name_normalized=normalize_text(full_name)
             ).count()
         if event.download_limit and prior_count >= event.download_limit:
-            return _fail(DUPLICATE_MESSAGE, "duplicate")
+            return _fail(event.duplicate_message or DUPLICATE_MESSAGE, "duplicate")
 
     template = get_object_or_404(CertificateTemplate, event=event)
 

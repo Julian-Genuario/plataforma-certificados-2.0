@@ -275,3 +275,20 @@ class DownloadLimitTests(TestCase):
             manual=True,
         )
         self.assertEqual(self._download().status_code, 200)
+
+    def test_custom_message_shown_when_set(self):
+        self.event.duplicate_message = "Ya retiraste tu certificado, capo."
+        self.event.save()
+        self._download()  # consume el cupo (límite default 1)
+        follow = self.client.post(
+            self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"}, follow=True
+        )
+        self.assertContains(follow, "Ya retiraste tu certificado, capo.")
+
+    def test_default_message_when_empty(self):
+        self.assertEqual(self.event.duplicate_message, "")
+        self._download()
+        follow = self.client.post(
+            self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"}, follow=True
+        )
+        self.assertContains(follow, "contacto.brisaplus@brisasg.com.ar")
