@@ -227,3 +227,51 @@ class EventConfigFieldsTests(TestCase):
         e.refresh_from_db()
         self.assertEqual(e.download_limit, 3)
         self.assertEqual(e.duplicate_message, "Hola")
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class DownloadLimitTests(TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.event = Event.objects.create(name="Vac", slug="vac", require_email=True)
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        self.url = reverse("download_certificate", kwargs={"slug": self.event.slug})
+
+    def _download(self):
+        return self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"})
+
+    def test_limit_two_allows_two_blocks_third(self):
+        self.event.download_limit = 2
+        self.event.save()
+        self.assertEqual(self._download().status_code, 200)
+        self.assertEqual(self._download().status_code, 200)
+        resp = self._download()
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(DownloadLog.objects.count(), 2)
+        self.assertEqual(RejectedAttempt.objects.get().reason, "duplicate")
+
+    def test_limit_zero_never_blocks(self):
+        self.event.download_limit = 0
+        self.event.save()
+        for _ in range(3):
+            self.assertEqual(self._download().status_code, 200)
+        self.assertEqual(DownloadLog.objects.count(), 3)
+        self.assertEqual(RejectedAttempt.objects.count(), 0)
+
+    def test_manual_downloads_do_not_count(self):
+        # Una entrega manual previa no debe consumir el cupo público (límite 1).
+        DownloadLog.objects.create(
+            event=self.event, name_entered="Juan Pérez",
+            name_normalized="juan perez", email_normalized="juan@mail.com",
+            manual=True,
+        )
+        self.assertEqual(self._download().status_code, 200)

@@ -190,7 +190,7 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
                 )
             full_name = matched_attendee.full_name
 
-        # Bloqueo de descargas duplicadas: ¿esta persona ya descargó este certificado?
+        # Bloqueo por límite de descargas: ¿cuántas veces descargó ya esta persona?
         prior = DownloadLog.objects.filter(event=event, manual=False)
         if matched_attendee is not None:
             # No alcanza con el FK: al reimportar la lista con "Reemplazar",
@@ -201,16 +201,16 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
                 identity |= Q(email_normalized=matched_attendee.email_normalized)
             else:
                 identity |= Q(name_normalized=matched_attendee.full_name_normalized)
-            already_downloaded = prior.filter(identity).exists()
+            prior_count = prior.filter(identity).count()
         elif email:
-            already_downloaded = prior.filter(
+            prior_count = prior.filter(
                 email_normalized=normalize_email(email)
-            ).exists()
+            ).count()
         else:
-            already_downloaded = prior.filter(
+            prior_count = prior.filter(
                 name_normalized=normalize_text(full_name)
-            ).exists()
-        if already_downloaded:
+            ).count()
+        if event.download_limit and prior_count >= event.download_limit:
             return _fail(DUPLICATE_MESSAGE, "duplicate")
 
     template = get_object_or_404(CertificateTemplate, event=event)
