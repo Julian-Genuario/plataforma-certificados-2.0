@@ -2,6 +2,9 @@
 
 {% block title %}Dashboard{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
+{% block topbar_actions %}
+<a href="{% url 'panel_report_pdf' %}" class="btn btn-secondary btn-sm">Exportar informe</a>
+{% endblock %}
 
 {% block content %}
 <div class="stats-grid">

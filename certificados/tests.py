@@ -323,3 +323,44 @@ class PanelEventFormTests(TestCase):
         self._post(download_limit="abc")
         self.event.refresh_from_db()
         self.assertEqual(self.event.download_limit, 1)
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class ReportPdfTests(TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.user = User.objects.create_user("admin2", password="x", is_staff=True)
+        self.client.force_login(self.user)
+
+    def test_report_pdf_empty_db(self):
+        resp = self.client.get(reverse("panel_report_pdf"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertTrue(resp.content.startswith(b"%PDF"))
+
+    def test_report_pdf_with_data(self):
+        ev = Event.objects.create(name="Vac", slug="vac")
+        Attendee.objects.create(event=ev, full_name="Juan Pérez", email="juan@mail.com")
+        DownloadLog.objects.create(event=ev, name_entered="Juan Pérez")
+        resp = self.client.get(reverse("panel_report_pdf"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.content.startswith(b"%PDF"))
+
+    def test_report_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("panel_report_pdf"))
+        self.assertEqual(resp.status_code, 302)  # redirige al login
+
+    def test_gather_report_data_shape(self):
+        from certificados.reports import gather_report_data
+        ev = Event.objects.create(name="Vac", slug="vac")
+        DownloadLog.objects.create(event=ev, name_entered="Juan")
+        data = gather_report_data()
+        self.assertEqual(data["totals"]["total_downloads"], 1)
+        self.assertEqual(len(data["daily"]), 7)
+        self.assertEqual(data["events"][0]["name"], "Vac")
+        self.assertEqual(data["events"][0]["downloads"], 1)

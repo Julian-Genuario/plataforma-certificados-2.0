@@ -5,6 +5,7 @@ urlpatterns = [
     path("login/", v.panel_login, name="panel_login"),
     path("logout/", v.panel_logout_view, name="panel_logout"),
     path("", v.panel_dashboard, name="panel_dashboard"),
+    path("informe.pdf", v.panel_report_pdf, name="panel_report_pdf"),
 
     # Events
     path("eventos/", v.panel_events, name="panel_events"),

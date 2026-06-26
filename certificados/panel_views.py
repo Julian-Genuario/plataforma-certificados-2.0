@@ -1,14 +1,12 @@
 import csv
 import zipfile
 from io import BytesIO
-from datetime import timedelta
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib import messages
 from django.db.models import Count, Q
-from django.db.models.functions import TruncDate
 from django.http import HttpResponse, StreamingHttpResponse, FileResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -32,6 +30,7 @@ from .attendees_io import (
     parse_text,
     ParseError,
 )
+from .reports import gather_report_data, build_report_pdf
 
 
 # ── Auth ─────────────────────────────────────
@@ -61,54 +60,36 @@ def panel_logout_view(request):
 
 @login_required(login_url="panel_login")
 def panel_dashboard(request):
-    now = timezone.now()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_ago = today_start - timedelta(days=6)
-
-    total_events = Event.objects.count()
-    active_events = Event.objects.filter(active=True).count()
-    total_downloads = DownloadLog.objects.count()
-    today_downloads = DownloadLog.objects.filter(created_at__gte=today_start).count()
-    manual_downloads = DownloadLog.objects.filter(manual=True).count()
-    rejected_total = RejectedAttempt.objects.count()
-    rejected_today = RejectedAttempt.objects.filter(created_at__gte=today_start).count()
-    duplicate_total = RejectedAttempt.objects.filter(reason="duplicate").count()
-
-    daily_downloads = (
-        DownloadLog.objects
-        .filter(created_at__gte=week_ago)
-        .annotate(day=TruncDate("created_at"))
-        .values("day")
-        .annotate(count=Count("id"))
-        .order_by("day")
-    )
-
-    chart_labels = []
-    chart_data = []
-    daily_map = {str(d["day"]): d["count"] for d in daily_downloads}
-    for i in range(7):
-        day = (week_ago + timedelta(days=i)).date()
-        chart_labels.append(day.strftime("%d/%m"))
-        chart_data.append(daily_map.get(str(day), 0))
+    data = gather_report_data()
+    t = data["totals"]
 
     recent_logs = DownloadLog.objects.select_related("event").order_by("-created_at")[:10]
     latest_event = Event.objects.order_by("-id").first()
 
     return render(request, "panel/dashboard.html", {
         "active_page": "dashboard",
-        "total_events": total_events,
-        "active_events": active_events,
-        "total_downloads": total_downloads,
-        "today_downloads": today_downloads,
-        "chart_labels": chart_labels,
-        "chart_data": chart_data,
+        "total_events": t["total_events"],
+        "active_events": t["active_events"],
+        "total_downloads": t["total_downloads"],
+        "today_downloads": t["today_downloads"],
+        "chart_labels": [d["label"] for d in data["daily"]],
+        "chart_data": [d["count"] for d in data["daily"]],
         "recent_logs": recent_logs,
         "latest_event": latest_event,
-        "manual_downloads": manual_downloads,
-        "rejected_total": rejected_total,
-        "rejected_today": rejected_today,
-        "duplicate_total": duplicate_total,
+        "manual_downloads": t["manual_downloads"],
+        "rejected_total": t["rejected_total"],
+        "rejected_today": t["rejected_today"],
+        "duplicate_total": t["duplicate_total"],
     })
+
+
+@login_required(login_url="panel_login")
+def panel_report_pdf(request):
+    data = gather_report_data()
+    pdf_bytes = build_report_pdf(data, timezone.now())
+    response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = 'attachment; filename="informe-certificados.pdf"'
+    return response
 
 
 # ── Events ──────────────────────────────────────
