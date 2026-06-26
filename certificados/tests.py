@@ -2,6 +2,7 @@ import shutil
 import tempfile
 from io import BytesIO
 
+from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -292,3 +293,33 @@ class DownloadLimitTests(TestCase):
             self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"}, follow=True
         )
         self.assertContains(follow, "contacto.brisaplus@brisasg.com.ar")
+
+
+class PanelEventFormTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("admin", password="x", is_staff=True)
+        self.client.force_login(self.user)
+        self.event = Event.objects.create(name="Evento", slug="evento")
+
+    def _post(self, **extra):
+        data = {"name": "Evento", "slug": "evento", "active": "on", "require_email": "on"}
+        data.update(extra)
+        return self.client.post(
+            reverse("panel_event_edit", kwargs={"pk": self.event.pk}), data
+        )
+
+    def test_saves_limit_and_message(self):
+        self._post(download_limit="3", duplicate_message="Texto custom")
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.download_limit, 3)
+        self.assertEqual(self.event.duplicate_message, "Texto custom")
+
+    def test_blank_limit_defaults_to_one(self):
+        self._post(download_limit="")
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.download_limit, 1)
+
+    def test_invalid_limit_defaults_to_one(self):
+        self._post(download_limit="abc")
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.download_limit, 1)

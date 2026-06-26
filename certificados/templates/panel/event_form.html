@@ -53,6 +53,19 @@
             <div class="form-help">Se muestra en la página pública del evento, debajo del último campo del formulario.</div>
         </div>
 
+        <div class="form-group">
+            <label>Límite de descargas por persona</label>
+            <input type="number" name="download_limit" min="0" step="1"
+                   value="{% if event %}{{ event.download_limit }}{% else %}1{% endif %}">
+            <div class="form-help">Cuántas veces puede descargar la misma persona antes de bloquearse. 0 = sin límite.</div>
+        </div>
+
+        <div class="form-group">
+            <label>Mensaje al alcanzar el límite</label>
+            <textarea name="duplicate_message" rows="3" placeholder="Vacío = se usa el mensaje por defecto de Brisa+.">{{ event.duplicate_message|default:'' }}</textarea>
+            <div class="form-help">Se muestra cuando la persona ya llegó al límite de descargas. Si lo dejás vacío, se usa el texto por defecto.</div>
+        </div>
+
         <div style="display:flex;gap:12px;">
             <button type="submit" class="btn btn-primary">{% if event %}Guardar cambios{% else %}Crear evento{% endif %}</button>
             <a href="{% url 'panel_events' %}" class="btn btn-secondary">Cancelar</a>

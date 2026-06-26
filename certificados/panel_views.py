@@ -132,6 +132,13 @@ def panel_event_form(request, pk=None):
         active = request.POST.get("active") == "on"
         require_email = request.POST.get("require_email") == "on"
         info_text = request.POST.get("info_text", "").strip()
+        duplicate_message = request.POST.get("duplicate_message", "").strip()
+        try:
+            download_limit = int(request.POST.get("download_limit", "1"))
+            if download_limit < 0:
+                download_limit = 1
+        except (TypeError, ValueError):
+            download_limit = 1
 
         if not name:
             messages.error(request, "El nombre es obligatorio.")
@@ -146,6 +153,8 @@ def panel_event_form(request, pk=None):
             event.active = active
             event.require_email = require_email
             event.info_text = info_text
+            event.download_limit = download_limit
+            event.duplicate_message = duplicate_message
             event.save()
             messages.success(request, "Evento actualizado.")
         else:
@@ -155,6 +164,8 @@ def panel_event_form(request, pk=None):
                 active=active,
                 require_email=require_email,
                 info_text=info_text,
+                download_limit=download_limit,
+                duplicate_message=duplicate_message,
             )
             messages.success(request, "Evento creado.")
 
