@@ -31,6 +31,17 @@ class Event(models.Model):
         default="",
         help_text="Texto informativo que se muestra en la página pública del evento, debajo del email.",
     )
+    download_limit = models.PositiveIntegerField(
+        default=1,
+        help_text="Cuántas descargas públicas puede hacer la misma persona "
+                  "antes de bloquearse. 0 = sin límite.",
+    )
+    duplicate_message = models.TextField(
+        blank=True,
+        default="",
+        help_text="Mensaje que se muestra cuando la persona alcanza el límite "
+                  "de descargas. Vacío = texto por defecto.",
+    )
 
     def __str__(self):
         return self.name

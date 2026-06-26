@@ -212,3 +212,18 @@ class BaselineOffsetTests(TestCase):
             2 * baseline_offset("Helvetica", 20, "top"),
             places=6,
         )
+
+
+class EventConfigFieldsTests(TestCase):
+    def test_defaults(self):
+        e = Event.objects.create(name="Evento", slug="evento")
+        self.assertEqual(e.download_limit, 1)
+        self.assertEqual(e.duplicate_message, "")
+
+    def test_can_store_custom_values(self):
+        e = Event.objects.create(
+            name="Otro", slug="otro", download_limit=3, duplicate_message="Hola"
+        )
+        e.refresh_from_db()
+        self.assertEqual(e.download_limit, 3)
+        self.assertEqual(e.duplicate_message, "Hola")
