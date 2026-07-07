@@ -1,0 +1,18 @@
+[Unit]
+Description=Gunicorn - Plataforma de Certificados
+After=network.target
+
+[Service]
+User=certif
+Group=www-data
+WorkingDirectory=/opt/certificados
+EnvironmentFile=/etc/certificados.env
+ExecStart=/opt/certificados/.venv/bin/gunicorn \
+    --workers 3 \
+    --bind unix:/run/certificados.sock \
+    config.wsgi:application
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
