@@ -7,9 +7,13 @@ User=certif
 Group=www-data
 WorkingDirectory=/opt/certificados
 EnvironmentFile=/etc/certificados.env
+# systemd crea /run/certificados (owner certif:www-data) donde el user SÍ puede
+# escribir el socket; se limpia solo al parar el servicio.
+RuntimeDirectory=certificados
+RuntimeDirectoryMode=0750
 ExecStart=/opt/certificados/.venv/bin/gunicorn \
     --workers 3 \
-    --bind unix:/run/certificados.sock \
+    --bind unix:/run/certificados/gunicorn.sock \
     config.wsgi:application
 Restart=on-failure
 RestartSec=3

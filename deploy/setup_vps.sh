@@ -24,7 +24,7 @@ python3 -m venv .venv
 
 echo "==> Archivo de entorno (se crea una sola vez)"
 if [ ! -f "$ENV_FILE" ]; then
-    SECRET=$(.venv/bin/python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())")
+    SECRET=$(.venv/bin/python -c "import secrets; print(secrets.token_urlsafe(64))")
     cat > "$ENV_FILE" <<EOF
 DJANGO_SECRET_KEY=$SECRET
 DJANGO_DEBUG=False
