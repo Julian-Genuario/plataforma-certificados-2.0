@@ -43,6 +43,9 @@ urlpatterns = [
     path("rechazados/", v.panel_rejected, name="panel_rejected"),
     path("rechazados/exportar/", v.panel_rejected_export, name="panel_rejected_export"),
 
+    # Apariencia / Configuración del sitio
+    path("apariencia/", v.panel_site_settings, name="panel_site_settings"),
+
     # Users
     path("usuarios/", v.panel_users, name="panel_users"),
     path("usuarios/crear/", v.panel_user_form, name="panel_user_create"),

@@ -174,7 +174,7 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
         has_attendees = event.attendees.exists()
 
         if event.require_email and not email:
-            return _fail("Tenés que ingresar tu email.", "missing_email")
+            return _fail("Ingresar el email.", "missing_email")
 
         if has_attendees:
             if not event.require_email:
@@ -185,7 +185,7 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
                 matched_attendee = _find_attendee(event, full_name, email)
             if matched_attendee is None:
                 return _fail(
-                    "No te encontramos en la lista de inscriptos. Verificá los datos.",
+                    "No figura en la lista de inscriptos. Verificar los datos ingresados.",
                     "not_in_list",
                 )
             full_name = matched_attendee.full_name
@@ -233,6 +233,11 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
 
     filename = f"certificado-{event.slug}.pdf"
     return FileResponse(BytesIO(pdf_bytes), as_attachment=True, filename=filename)
+
+
+def server_error(request):
+    """handler500: página de error amigable (requiere DEBUG=False)."""
+    return render(request, "errors/500.html", status=500)
 
 
 def home_page(request):

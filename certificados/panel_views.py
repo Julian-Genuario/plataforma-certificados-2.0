@@ -22,6 +22,7 @@ from .models import (
     DownloadLog,
     RejectedAttempt,
     Attendee,
+    SiteSettings,
     normalize_text,
 )
 from .views import build_pdf_bytes, _build_certificate_response, _get_client_ip, fit_font_size, baseline_offset
@@ -770,6 +771,41 @@ def panel_user_delete(request, pk):
             user_obj.delete()
             messages.success(request, "Usuario eliminado.")
     return redirect("panel_users")
+
+
+# ── Apariencia / Configuración del sitio ────────
+
+def _valid_hex(value, fallback):
+    """Devuelve un color hex válido (#rrggbb) o el fallback."""
+    value = (value or "").strip()
+    if len(value) == 7 and value[0] == "#":
+        try:
+            int(value[1:], 16)
+            return value.lower()
+        except ValueError:
+            pass
+    return fallback
+
+
+@login_required(login_url="panel_login")
+def panel_site_settings(request):
+    site = SiteSettings.load()
+
+    if request.method == "POST":
+        site.color_fondo = _valid_hex(request.POST.get("color_fondo"), "#ffffff")
+        site.color_mensaje = _valid_hex(request.POST.get("color_mensaje"), "#1d4ed8")
+        site.titulo = (request.POST.get("titulo") or "").strip() or "Descargar certificado"
+        site.mensaje = (request.POST.get("mensaje") or "").strip()
+        site.mantenimiento = request.POST.get("mantenimiento") == "on"
+        site.mensaje_mantenimiento = (request.POST.get("mensaje_mantenimiento") or "").strip()
+        site.save()
+        messages.success(request, "Configuración guardada.")
+        return redirect("panel_site_settings")
+
+    return render(request, "panel/site_settings.html", {
+        "active_page": "apariencia",
+        "site": site,
+    })
 
 
 # ── Attendees ───────────────────────────────────

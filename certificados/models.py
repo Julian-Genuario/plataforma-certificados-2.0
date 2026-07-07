@@ -18,6 +18,69 @@ def normalize_email(value):
     return str(value).strip().lower()
 
 
+DEFAULT_MAINTENANCE_MESSAGE = (
+    "Estamos recibiendo muchas visitas en este momento. "
+    "Volver a intentar en unos minutos."
+)
+
+
+class SiteSettings(models.Model):
+    """Configuración global del sitio (apariencia + mantenimiento).
+
+    Es un singleton: siempre existe una sola fila (pk=1). Usar
+    ``SiteSettings.load()`` para obtenerla/crearla.
+    """
+
+    color_fondo = models.CharField(
+        max_length=7,
+        default="#ffffff",
+        help_text="Color de fondo de las páginas públicas (hex, ej: #ffffff).",
+    )
+    color_mensaje = models.CharField(
+        max_length=7,
+        default="#1d4ed8",
+        help_text="Color del título y el mensaje principal (hex, ej: #1d4ed8).",
+    )
+    titulo = models.CharField(
+        max_length=120,
+        default="Descargar certificado",
+        help_text="Título que se muestra en la página de inicio.",
+    )
+    mensaje = models.TextField(
+        blank=True,
+        default="Seleccionar el evento e ingresar el nombre completo y el email "
+                "para descargar el certificado de participación.",
+        help_text="Mensaje/instrucción debajo del título en la página de inicio.",
+    )
+    mantenimiento = models.BooleanField(
+        default=False,
+        help_text="Si está activado, el sitio público muestra el mensaje de "
+                  "mantenimiento. El panel sigue accesible.",
+    )
+    mensaje_mantenimiento = models.TextField(
+        blank=True,
+        default=DEFAULT_MAINTENANCE_MESSAGE,
+        help_text="Mensaje que se muestra cuando el modo mantenimiento está activo.",
+    )
+
+    class Meta:
+        verbose_name = "Configuración del sitio"
+        verbose_name_plural = "Configuración del sitio"
+
+    def __str__(self):
+        return "Configuración del sitio"
+
+    def save(self, *args, **kwargs):
+        # Forzar singleton: siempre pk=1.
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
 class Event(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField(unique=True)

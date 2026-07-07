@@ -674,6 +674,9 @@
         </a>
 
         <div class="sidebar-section">Sistema</div>
+        <a href="{% url 'panel_site_settings' %}" class="{% if active_page == 'apariencia' %}active{% endif %}">
+            <span class="nav-icon">&#9998;</span> Apariencia
+        </a>
         <a href="{% url 'panel_users' %}" class="{% if active_page == 'users' %}active{% endif %}">
             <span class="nav-icon">&#9823;</span> Usuarios
         </a>

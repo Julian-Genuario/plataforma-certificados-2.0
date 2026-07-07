@@ -364,3 +364,66 @@ class ReportPdfTests(TestCase):
         self.assertEqual(len(data["daily"]), 7)
         self.assertEqual(data["events"][0]["name"], "Vac")
         self.assertEqual(data["events"][0]["downloads"], 1)
+
+
+class SiteSettingsTests(TestCase):
+    def test_load_is_singleton(self):
+        from .models import SiteSettings
+        a = SiteSettings.load()
+        b = SiteSettings.load()
+        self.assertEqual(a.pk, 1)
+        self.assertEqual(a.pk, b.pk)
+        self.assertEqual(SiteSettings.objects.count(), 1)
+        # Guardar una segunda instancia no crea otra fila.
+        a.color_fondo = "#000000"
+        a.save()
+        self.assertEqual(SiteSettings.objects.count(), 1)
+
+    def test_defaults(self):
+        from .models import SiteSettings
+        s = SiteSettings.load()
+        self.assertEqual(s.color_fondo, "#ffffff")
+        self.assertEqual(s.color_mensaje, "#1d4ed8")
+        self.assertFalse(s.mantenimiento)
+
+
+class MaintenanceModeTests(TestCase):
+    def setUp(self):
+        Event.objects.create(name="Evento", slug="ev", require_email=False)
+
+    def test_off_by_default_home_ok(self):
+        resp = self.client.get(reverse("home"))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_on_blocks_public_with_503(self):
+        from .models import SiteSettings
+        s = SiteSettings.load()
+        s.mantenimiento = True
+        s.mensaje_mantenimiento = "Volver en unos minutos."
+        s.save()
+        resp = self.client.get(reverse("home"))
+        self.assertEqual(resp.status_code, 503)
+        self.assertContains(resp, "Volver en unos minutos.", status_code=503)
+
+    def test_on_still_allows_panel_login(self):
+        from .models import SiteSettings
+        s = SiteSettings.load()
+        s.mantenimiento = True
+        s.save()
+        resp = self.client.get(reverse("panel_login"))
+        self.assertEqual(resp.status_code, 200)
+
+
+class PublicAppearanceTests(TestCase):
+    def setUp(self):
+        Event.objects.create(name="Evento", slug="ev", require_email=False)
+
+    def test_home_uses_background_color(self):
+        from .models import SiteSettings
+        s = SiteSettings.load()
+        s.color_fondo = "#eef2ff"
+        s.titulo = "Mis certificados"
+        s.save()
+        resp = self.client.get(reverse("home"))
+        self.assertContains(resp, "#eef2ff")
+        self.assertContains(resp, "Mis certificados")

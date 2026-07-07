@@ -1,0 +1,59 @@
+{% extends "panel/base.html" %}
+
+{% block title %}Apariencia{% endblock %}
+{% block page_title %}Apariencia y sitio{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:640px;">
+    <div class="card-header">
+        <div class="card-title">Página pública</div>
+    </div>
+    <form method="post">
+        {% csrf_token %}
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Color de fondo</label>
+                <input type="color" name="color_fondo" value="{{ site.color_fondo }}" style="height:44px;padding:4px;">
+                <div class="form-help">Fondo de las páginas públicas. Estándar: blanco.</div>
+            </div>
+            <div class="form-group">
+                <label>Color del mensaje</label>
+                <input type="color" name="color_mensaje" value="{{ site.color_mensaje }}" style="height:44px;padding:4px;">
+                <div class="form-help">Color del título y el mensaje principal.</div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Título</label>
+            <input type="text" name="titulo" value="{{ site.titulo }}" maxlength="120">
+        </div>
+
+        <div class="form-group">
+            <label>Mensaje</label>
+            <textarea name="mensaje" rows="3">{{ site.mensaje }}</textarea>
+            <div class="form-help">Instrucción que aparece debajo del título en la página de inicio.</div>
+        </div>
+
+        <div class="card" style="background:#fafafa;margin:24px 0;">
+            <div class="card-title" style="margin-bottom:16px;">Modo mantenimiento</div>
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:12px;">
+                    <span>Activar mantenimiento</span>
+                    <label class="toggle">
+                        <input type="checkbox" name="mantenimiento" {% if site.mantenimiento %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </label>
+                <div class="form-help">Con esto activado, el sitio público muestra el mensaje de abajo (HTTP 503). El panel sigue accesible para poder desactivarlo.</div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label>Mensaje de mantenimiento</label>
+                <textarea name="mensaje_mantenimiento" rows="2">{{ site.mensaje_mantenimiento }}</textarea>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Guardar</button>
+    </form>
+</div>
+{% endblock %}

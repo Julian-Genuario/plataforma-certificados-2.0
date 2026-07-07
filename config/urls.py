@@ -12,3 +12,6 @@ urlpatterns = [
     path("download/", cert_views.download_from_home, name="download_from_home"),
     path("e/", include("certificados.urls")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# Página de error amigable ante errores del servidor (solo con DEBUG=False).
+handler500 = "certificados.views.server_error"
