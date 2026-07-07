@@ -9,6 +9,7 @@ from django.contrib import messages
 from django.db.models import Count, Q
 from django.http import HttpResponse, StreamingHttpResponse, FileResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -153,9 +154,16 @@ def panel_event_form(request, pk=None):
 
         return redirect("panel_events")
 
+    embed_url = ""
+    if event:
+        embed_url = request.build_absolute_uri(
+            reverse("event_page", kwargs={"slug": event.slug}) + "?embed=1"
+        )
+
     return render(request, "panel/event_form.html", {
         "active_page": "events",
         "event": event,
+        "embed_url": embed_url,
     })
 
 
@@ -802,9 +810,12 @@ def panel_site_settings(request):
         messages.success(request, "Configuración guardada.")
         return redirect("panel_site_settings")
 
+    home_embed_url = request.build_absolute_uri(reverse("home") + "?embed=1")
+
     return render(request, "panel/site_settings.html", {
         "active_page": "apariencia",
         "site": site,
+        "home_embed_url": home_embed_url,
     })
 
 

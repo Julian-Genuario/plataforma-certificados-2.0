@@ -4,6 +4,8 @@ from django.contrib import messages
 from django.db.models import Q
 from django.http import FileResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.views.decorators.clickjacking import xframe_options_exempt
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
@@ -164,9 +166,11 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
     def _fail(msg, reason):
         _log_rejected(event, request, reason, name=full_name, email=email)
         messages.error(request, msg)
+        # Preservar el modo embed para que el error se renderice dentro del iframe.
+        embed_qs = "?embed=1" if request.GET.get("embed") else ""
         if failure_redirect == "home":
-            return redirect("home")
-        return redirect("event_page", slug=event.slug)
+            return redirect(reverse("home") + embed_qs)
+        return redirect(reverse("event_page", kwargs={"slug": event.slug}) + embed_qs)
 
     matched_attendee = None
 
@@ -240,11 +244,13 @@ def server_error(request):
     return render(request, "errors/500.html", status=500)
 
 
+@xframe_options_exempt
 def home_page(request):
     events = Event.objects.filter(active=True).order_by("name")
     return render(request, "certificados/home.html", {"events": events})
 
 
+@xframe_options_exempt
 def download_from_home(request):
     if request.method != "POST":
         return HttpResponseBadRequest("Método no permitido.")
@@ -261,11 +267,13 @@ def download_from_home(request):
     )
 
 
+@xframe_options_exempt
 def event_page(request, slug):
     event = get_object_or_404(Event, slug=slug, active=True)
     return render(request, "certificados/event_page.html", {"event": event})
 
 
+@xframe_options_exempt
 def download_certificate(request, slug):
     if request.method != "POST":
         return HttpResponseBadRequest("Método no permitido.")

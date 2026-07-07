@@ -149,9 +149,19 @@
             .card-inner { padding: 32px 24px; }
             h1 { font-size: 24px; }
         }
+
+        /* Modo embed (?embed=1): pensado para vivir dentro de un iframe */
+        body.embed {
+            min-height: 0;
+            background: transparent;
+            padding: 0;
+            display: block;
+        }
+        body.embed .card { max-width: 100%; }
+        body.embed .footer { display: none; }
     </style>
 </head>
-<body>
+<body class="{% if request.GET.embed %}embed{% endif %}">
 
 <div class="card">
     <div class="card-inner">
@@ -171,7 +181,7 @@
             {% endfor %}
         {% endif %}
 
-        <form method="post" action="{% url 'download_certificate' slug=event.slug %}">
+        <form method="post" action="{% url 'download_certificate' slug=event.slug %}{% if request.GET.embed %}?embed=1{% endif %}">
             {% csrf_token %}
 
             <div class="form-group">

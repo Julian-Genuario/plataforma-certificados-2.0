@@ -56,4 +56,32 @@
         <button type="submit" class="btn btn-primary">Guardar</button>
     </form>
 </div>
+
+{% if home_embed_url %}
+<div class="card" style="max-width:640px;">
+    <div class="card-header">
+        <div class="card-title">Embeber el inicio en otra web</div>
+    </div>
+    <p class="form-help" style="margin-bottom:12px;">Copiá este código para mostrar la página de inicio (con el selector de evento) dentro de otra web.</p>
+    <textarea id="homeEmbedCode" readonly rows="3" style="font-family:monospace;font-size:12px;" onclick="this.select();">&lt;iframe src="{{ home_embed_url }}" width="480" height="680" style="border:0;max-width:100%;" title="Descargar certificado"&gt;&lt;/iframe&gt;</textarea>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-top:12px;" onclick="copyEmbed('homeEmbedCode', this)">Copiar código</button>
+</div>
+
+<script>
+function copyEmbed(id, btn) {
+    var el = document.getElementById(id);
+    el.focus(); el.select(); el.setSelectionRange(0, 99999);
+    var done = function () {
+        var t = btn.textContent;
+        btn.textContent = '¡Copiado!';
+        setTimeout(function () { btn.textContent = t; }, 1500);
+    };
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(el.value).then(done, function () { document.execCommand('copy'); done(); });
+    } else {
+        document.execCommand('copy'); done();
+    }
+}
+</script>
+{% endif %}
 {% endblock %}

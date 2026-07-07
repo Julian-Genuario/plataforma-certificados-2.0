@@ -427,3 +427,32 @@ class PublicAppearanceTests(TestCase):
         resp = self.client.get(reverse("home"))
         self.assertContains(resp, "#eef2ff")
         self.assertContains(resp, "Mis certificados")
+
+
+class EmbedTests(TestCase):
+    def setUp(self):
+        self.event = Event.objects.create(name="Evento", slug="ev", require_email=False)
+
+    def test_event_embed_no_xframe_header(self):
+        resp = self.client.get("/e/ev/?embed=1")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.headers.get("X-Frame-Options"))
+        self.assertContains(resp, 'class="embed"')
+
+    def test_home_embed_no_xframe_header(self):
+        resp = self.client.get("/?embed=1")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.headers.get("X-Frame-Options"))
+
+    def test_panel_keeps_xframe_header(self):
+        resp = self.client.get(reverse("panel_login"))
+        self.assertEqual(resp.headers.get("X-Frame-Options"), "DENY")
+
+    def test_standalone_has_no_embed_class(self):
+        resp = self.client.get("/e/ev/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'class="embed"')
+
+    def test_embed_form_action_carries_param(self):
+        resp = self.client.get("/e/ev/?embed=1")
+        self.assertContains(resp, "?embed=1")
