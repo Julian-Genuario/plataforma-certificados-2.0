@@ -49,6 +49,7 @@
                     <th>Nombre completo</th>
                     <th>Email</th>
                     <th>Importado</th>
+                    <th>Limite descargas</th>
                     <th style="text-align:right;">Acciones</th>
                 </tr>
             </thead>
@@ -58,6 +59,13 @@
                     <td><strong>{{ a.full_name }}</strong></td>
                     <td style="color:#6b7280;">{{ a.email }}</td>
                     <td style="color:#6b7280;font-size:13px;">{{ a.created_at|date:"d/m/Y H:i" }}</td>
+                    <td>
+                        <form method="post" action="{% url 'panel_attendee_limit' event_pk=event.pk pk=a.pk %}" style="display:flex;gap:6px;align-items:center;">
+                            {% csrf_token %}
+                            <input type="number" name="download_limit" min="0" step="1" value="{{ a.download_limit|default_if_none:'' }}" placeholder="{{ event.download_limit }} (global)" title="Vacio = usa el limite global del evento" style="width:130px;padding:4px 8px;">
+                            <button type="submit" class="btn btn-secondary btn-sm">Guardar</button>
+                        </form>
+                    </td>
                     <td style="text-align:right;">
                         <button class="btn btn-danger btn-sm"
                                 onclick="confirmDelete('{% url 'panel_attendee_delete' event_pk=event.pk pk=a.pk %}', '{{ a.full_name|escapejs }}')">
@@ -67,7 +75,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="4">
+                    <td colspan="5">
                         <div class="empty-state">
                             <div class="icon">&#9776;</div>
                             <p>{% if search %}Ningún inscripto coincide con la búsqueda.{% else %}Todavía no cargaste inscriptos.{% endif %}</p>

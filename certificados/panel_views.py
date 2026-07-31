@@ -94,6 +94,39 @@ def panel_report_pdf(request):
     return response
 
 
+@login_required(login_url="panel_login")
+def panel_reset_stats(request):
+    """Reinicia las estadisticas: borra descargas e intentos rechazados.
+    ANTES de borrar guarda un backup CSV en disco (nunca se pierde el historial).
+    NO toca eventos, plantillas ni inscriptos."""
+    if request.method == "POST":
+        import os as _os, csv as _csv
+        from django.utils import timezone as _tz
+        dl_qs = DownloadLog.objects.select_related("event").all()
+        ra_qs = RejectedAttempt.objects.select_related("event").all()
+        dl = dl_qs.count()
+        ra = ra_qs.count()
+        bkdir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "stats_backups")
+        _os.makedirs(bkdir, exist_ok=True)
+        stamp = _tz.now().strftime("%Y%m%d-%H%M%S")
+        bkfile = _os.path.join(bkdir, "reset-" + stamp + ".csv")
+        with open(bkfile, "w", newline="", encoding="utf-8") as _f:
+            w = _csv.writer(_f)
+            w.writerow(["tipo", "evento", "nombre", "email", "motivo", "manual", "fecha_utc"])
+            for d in dl_qs:
+                w.writerow(["descarga", d.event.slug, d.name_entered, d.email_normalized, "", d.manual, d.created_at.isoformat()])
+            for r in ra_qs:
+                w.writerow(["rechazo", r.event.slug, r.name_entered, r.email_entered, r.reason, "", r.created_at.isoformat()])
+        DownloadLog.objects.all().delete()
+        RejectedAttempt.objects.all().delete()
+        messages.success(
+            request,
+            "Estadisticas reiniciadas. Backup guardado en stats_backups/reset-" + stamp + ".csv "
+            "(%d descargas + %d intentos rechazados). Eventos, plantillas e inscriptos intactos." % (dl, ra),
+        )
+    return redirect("panel_dashboard")
+
+
 # ── Events ──────────────────────────────────────
 
 @login_required(login_url="panel_login")
@@ -114,6 +147,7 @@ def panel_event_form(request, pk=None):
         slug = request.POST.get("slug", "").strip() or slugify(name)
         active = request.POST.get("active") == "on"
         require_email = request.POST.get("require_email") == "on"
+        free_download = request.POST.get("free_download") == "on"
         info_text = request.POST.get("info_text", "").strip()
         duplicate_message = request.POST.get("duplicate_message", "").strip()
         try:
@@ -135,6 +169,7 @@ def panel_event_form(request, pk=None):
             event.slug = slug
             event.active = active
             event.require_email = require_email
+            event.free_download = free_download
             event.info_text = info_text
             event.download_limit = download_limit
             event.duplicate_message = duplicate_message
@@ -146,6 +181,7 @@ def panel_event_form(request, pk=None):
                 slug=slug,
                 active=active,
                 require_email=require_email,
+                free_download=free_download,
                 info_text=info_text,
                 download_limit=download_limit,
                 duplicate_message=duplicate_message,
@@ -934,6 +970,25 @@ def panel_attendee_delete(request, event_pk, pk):
     if request.method == "POST":
         attendee.delete()
         messages.success(request, "Inscripto eliminado.")
+    return redirect("panel_attendees", event_pk=event.pk)
+
+
+@login_required(login_url="panel_login")
+def panel_attendee_limit(request, event_pk, pk):
+    event = get_object_or_404(Event, pk=event_pk)
+    attendee = get_object_or_404(Attendee, pk=pk, event=event)
+    if request.method == "POST":
+        raw = (request.POST.get("download_limit") or "").strip()
+        if raw == "":
+            attendee.download_limit = None
+        else:
+            try:
+                val = int(raw)
+                attendee.download_limit = val if val >= 0 else None
+            except (TypeError, ValueError):
+                attendee.download_limit = None
+        attendee.save(update_fields=["download_limit"])
+        messages.success(request, "Limite del inscripto actualizado.")
     return redirect("panel_attendees", event_pk=event.pk)
 
 

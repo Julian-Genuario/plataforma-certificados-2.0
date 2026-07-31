@@ -6,6 +6,7 @@ urlpatterns = [
     path("logout/", v.panel_logout_view, name="panel_logout"),
     path("", v.panel_dashboard, name="panel_dashboard"),
     path("informe.pdf", v.panel_report_pdf, name="panel_report_pdf"),
+    path("reiniciar-stats/", v.panel_reset_stats, name="panel_reset_stats"),
 
     # Events
     path("eventos/", v.panel_events, name="panel_events"),
@@ -34,6 +35,7 @@ urlpatterns = [
     path("eventos/<int:event_pk>/inscriptos/importar/", v.panel_attendees_import, name="panel_attendees_import"),
     path("eventos/<int:event_pk>/inscriptos/limpiar/", v.panel_attendees_clear, name="panel_attendees_clear"),
     path("eventos/<int:event_pk>/inscriptos/<int:pk>/eliminar/", v.panel_attendee_delete, name="panel_attendee_delete"),
+    path("eventos/<int:event_pk>/inscriptos/<int:pk>/limite/", v.panel_attendee_limit, name="panel_attendee_limit"),
 
     # Logs
     path("descargas/", v.panel_logs, name="panel_logs"),

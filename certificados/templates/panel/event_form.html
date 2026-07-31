@@ -48,6 +48,17 @@
         </div>
 
         <div class="form-group">
+            <label style="display:flex;align-items:center;gap:12px;">
+                <span>Descarga libre (sin lista)</span>
+                <label class="toggle">
+                    <input type="checkbox" name="free_download" {% if event.free_download %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+            <div class="form-help">Si está activado, cualquier persona puede descargar su certificado aunque no figure en la lista de inscriptos. Si está desactivado y hay inscriptos cargados, solo ellos pueden descargar.</div>
+        </div>
+
+        <div class="form-group">
             <label>Texto informativo (bajada)</label>
             <textarea name="info_text" rows="4" placeholder="Texto que se muestra debajo del email en la página pública. Por ejemplo: 'Usá el email con el que te registraste al evento.'">{{ event.info_text|default:'' }}</textarea>
             <div class="form-help">Se muestra en la página pública del evento, debajo del último campo del formulario.</div>

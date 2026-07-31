@@ -143,10 +143,25 @@ def _find_attendee(event, full_name, email):
     email_norm = normalize_email(email)
     if not name_norm or not email_norm:
         return None
-    return event.attendees.filter(
+    exact = event.attendees.filter(
         full_name_normalized=name_norm,
         email_normalized=email_norm,
     ).first()
+    if exact:
+        return exact
+    # Feature 5: mismo email y el nombre registrado contenido en el ingresado
+    # (la persona puede sumar nombres: 'emilia fernandez' -> 'maria emilia fernandez').
+    entered = set(name_norm.split())
+    for att in event.attendees.filter(email_normalized=email_norm):
+        reg = set(att.full_name_normalized.split())
+        if reg and reg.issubset(entered) and len(entered - reg) <= 2:
+            return att
+    return None
+
+
+def _title_case(name):
+    """Primera letra de cada palabra en mayuscula, resto en minuscula (respeta acentos)."""
+    return " ".join(w[:1].upper() + w[1:].lower() for w in (name or "").split())
 
 
 def _build_certificate_response(event, full_name, request, manual=False, email="", failure_redirect=None):
@@ -164,18 +179,26 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
         return HttpResponseBadRequest("Nombre demasiado largo (máx 200).")
 
     def _fail(msg, reason):
+        from urllib.parse import urlencode as _urlencode
         _log_rejected(event, request, reason, name=full_name, email=email)
         messages.error(request, msg)
-        # Preservar el modo embed para que el error se renderice dentro del iframe.
-        embed_qs = "?embed=1" if request.GET.get("embed") else ""
+        # Preservar embed + los datos ingresados para repoblar el form.
+        _params = {}
+        if request.GET.get("embed"):
+            _params["embed"] = "1"
+        if full_name:
+            _params["nombre"] = full_name
+        if email:
+            _params["email"] = email
+        _qs = ("?" + _urlencode(_params)) if _params else ""
         if failure_redirect == "home":
-            return redirect(reverse("home") + embed_qs)
-        return redirect(reverse("event_page", kwargs={"slug": event.slug}) + embed_qs)
+            return redirect(reverse("home") + _qs)
+        return redirect(reverse("event_page", kwargs={"slug": event.slug}) + _qs)
 
     matched_attendee = None
 
     if not manual:
-        has_attendees = event.attendees.exists()
+        has_attendees = event.attendees.exists() and not event.free_download
 
         if event.require_email and not email:
             return _fail("Ingresar el email.", "missing_email")
@@ -188,11 +211,25 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
             else:
                 matched_attendee = _find_attendee(event, full_name, email)
             if matched_attendee is None:
-                return _fail(
-                    "No figura en la lista de inscriptos. Verificar los datos ingresados.",
-                    "not_in_list",
-                )
-            full_name = matched_attendee.full_name
+                _prev = RejectedAttempt.objects.filter(event=event, reason="not_in_list")
+                if email:
+                    _prev = _prev.filter(email_entered__iexact=email)
+                else:
+                    _prev = _prev.filter(name_entered__iexact=full_name)
+                if _prev.exists():
+                    _msg = (
+                        "No encontramos su suscripción activa en Brisa+. Contactarse con "
+                        "contacto.brisaplus@brisasg.com.ar para recibir el link de pago y "
+                        "completar su activación a Brisa+ para poder bajar el Certificado solicitado."
+                    )
+                else:
+                    _msg = (
+                        "No figura en la lista de suscriptores activos de Brisa+. Verificar los "
+                        "datos ingresados, asegurar que sean los mismos utilizados para su registro "
+                        "en Brisa+ y volver a intentar."
+                    )
+                return _fail(_msg, "not_in_list")
+            # Feature 5/6: se conserva el nombre ingresado (Title Case al generar).
 
         # Bloqueo por límite de descargas: ¿cuántas veces descargó ya esta persona?
         prior = DownloadLog.objects.filter(event=event, manual=False)
@@ -214,9 +251,14 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
             prior_count = prior.filter(
                 name_normalized=normalize_text(full_name)
             ).count()
-        if event.download_limit and prior_count >= event.download_limit:
+        effective_limit = event.download_limit
+        if matched_attendee is not None and matched_attendee.download_limit is not None:
+            effective_limit = matched_attendee.download_limit
+        if effective_limit and prior_count >= effective_limit:
             return _fail(event.duplicate_message or DUPLICATE_MESSAGE, "duplicate")
 
+    # Feature 6: nombre del certificado siempre en Title Case.
+    full_name = _title_case(full_name)
     template = get_object_or_404(CertificateTemplate, event=event)
 
     DownloadLog.objects.create(
@@ -235,7 +277,8 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
     except ValueError as exc:
         return HttpResponseBadRequest(str(exc))
 
-    filename = f"certificado-{event.slug}.pdf"
+    _safe = full_name.replace("/", "-").strip() or "certificado"
+    filename = "Certificado " + _safe + ".pdf"
     return FileResponse(BytesIO(pdf_bytes), as_attachment=True, filename=filename)
 
 

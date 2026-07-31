@@ -190,6 +190,7 @@
                     <input type="text" name="full_name" required
                            placeholder="Ej: Juan Perez"
                            autocomplete="name"
+                           value="{{ request.GET.nombre|default:'' }}"
                            maxlength="200">
                 </div>
             </div>
@@ -201,6 +202,7 @@
                     <input type="email" name="email" required
                            placeholder="nombre@email.com"
                            autocomplete="email"
+                           value="{{ request.GET.email|default:'' }}"
                            maxlength="200">
                 </div>
             </div>

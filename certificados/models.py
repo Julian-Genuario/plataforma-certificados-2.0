@@ -89,6 +89,10 @@ class Event(models.Model):
         default=True,
         help_text="Si está activado, el form pide email obligatorio y, si hay inscriptos cargados, valida nombre+email contra la lista.",
     )
+    free_download = models.BooleanField(
+        default=False,
+        help_text="Si está activado, cualquier persona puede descargar aunque no esté en la lista de inscriptos (descarga libre).",
+    )
     info_text = models.TextField(
         blank=True,
         default="",
@@ -201,6 +205,11 @@ class Attendee(models.Model):
     full_name_normalized = models.CharField(max_length=200, db_index=True)
     email_normalized = models.EmailField(db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    download_limit = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Limite propio de descargas. Vacio = usa el limite global del evento.",
+    )
 
     class Meta:
         constraints = [

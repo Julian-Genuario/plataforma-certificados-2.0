@@ -4,6 +4,10 @@
 {% block page_title %}Dashboard{% endblock %}
 {% block topbar_actions %}
 <a href="{% url 'panel_report_pdf' %}" class="btn btn-secondary btn-sm">Exportar informe</a>
+<form method="post" action="{% url 'panel_reset_stats' %}" style="display:inline;" onsubmit="return confirm('Reiniciar todas las estadisticas a 0? Se borran las descargas e intentos rechazados registrados. Los eventos, plantillas e inscriptos NO se tocan.');">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger btn-sm">Reiniciar estadisticas</button>
+</form>
 {% endblock %}
 
 {% block content %}
