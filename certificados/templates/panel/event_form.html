@@ -16,14 +16,20 @@
             <label>Nombre del evento</label>
             <input type="text" name="name" value="{{ event.name|default:'' }}" required
                    placeholder="Ej: Congreso de Tecnologia 2026"
-                   oninput="generateSlug(this.value)">
+                   {% if not event %}oninput="generateSlug(this.value)"{% endif %}>
         </div>
 
         <div class="form-group">
             <label>Slug (URL)</label>
             <input type="text" name="slug" id="slugField" value="{{ event.slug|default:'' }}"
-                   placeholder="congreso-de-tecnologia-2026">
+                   placeholder="congreso-de-tecnologia-2026"
+                   {% if event %}data-original="{{ event.slug }}"{% endif %}>
+            {% if event %}
+            <div class="form-help">⚠️ Se usa en la URL: /e/slug/. Cambiarlo rompe los links y los iframes ya pegados en otras webs (la URL vieja deja de existir). Cambiar el nombre del evento NO modifica el slug.</div>
+            <div class="form-help" id="slugWarning" style="display:none;color:#dc2626;font-weight:600;">⚠️ Estás cambiando el slug: al guardar, el link y el iframe difundidos con la URL anterior van a dejar de funcionar.</div>
+            {% else %}
             <div class="form-help">Se genera automaticamente del nombre. Se usa en la URL: /e/slug/</div>
+            {% endif %}
         </div>
 
         <div class="form-group">
@@ -78,8 +84,9 @@
     <div class="card-header">
         <div class="card-title">Embeber en otra web</div>
     </div>
-    <p class="form-help" style="margin-bottom:12px;">Copiá este código y pegalo en el HTML de tu página para mostrar el formulario de descarga de este evento.</p>
-    <textarea id="embedCode" readonly rows="3" style="font-family:monospace;font-size:12px;" onclick="this.select();">&lt;iframe src="{{ embed_url }}" width="480" height="640" style="border:0;max-width:100%;" title="Descargar certificado"&gt;&lt;/iframe&gt;</textarea>
+    <p class="form-help" style="margin-bottom:12px;">Copiá este código y pegalo en el HTML de tu página para mostrar el formulario de descarga de este evento. Incluye un link directo debajo del iframe como respaldo para navegadores que bloquean cookies de terceros (Safari, modo incógnito).</p>
+    <textarea id="embedCode" readonly rows="5" style="font-family:monospace;font-size:12px;" onclick="this.select();">&lt;iframe src="{{ embed_url }}" width="480" height="760" style="border:0;max-width:100%;" title="Descargar certificado"&gt;&lt;/iframe&gt;
+&lt;p&gt;¿Problemas con el formulario? &lt;a href="{{ public_url }}" target="_blank" rel="noopener"&gt;Descargar el certificado desde este link&lt;/a&gt;.&lt;/p&gt;</textarea>
     <button type="button" class="btn btn-secondary btn-sm" style="margin-top:12px;" onclick="copyEmbed('embedCode', this)">Copiar código</button>
 </div>
 {% endif %}
@@ -111,5 +118,15 @@ function generateSlug(text) {
         .replace(/^-|-$/g, '');
     document.getElementById('slugField').value = slug;
 }
+
+// Al editar: avisar si el slug se aparta del original (rompe links/iframes difundidos)
+(function () {
+    var field = document.getElementById('slugField');
+    var warning = document.getElementById('slugWarning');
+    if (!field || !warning || !field.dataset.original) return;
+    field.addEventListener('input', function () {
+        warning.style.display = field.value.trim() === field.dataset.original ? 'none' : 'block';
+    });
+})();
 </script>
 {% endblock %}

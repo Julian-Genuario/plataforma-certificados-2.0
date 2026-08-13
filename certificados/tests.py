@@ -308,6 +308,21 @@ class PanelEventFormTests(TestCase):
             reverse("panel_event_edit", kwargs={"pk": self.event.pk}), data
         )
 
+    def test_edit_with_blank_slug_keeps_existing(self):
+        # Un slug vacío al editar NO debe regenerarse del nombre:
+        # cambiaría la URL y rompería los iframes/links ya difundidos.
+        self._post(name="Evento Renombrado", slug="")
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.slug, "evento")
+        self.assertEqual(self.event.name, "Evento Renombrado")
+
+    def test_edit_renaming_keeps_slug_sent_by_form(self):
+        # El form de edición manda el slug actual prellenado; renombrar
+        # el evento no lo toca.
+        self._post(name="Otro Nombre", slug="evento")
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.slug, "evento")
+
     def test_saves_limit_and_message(self):
         self._post(download_limit="3", duplicate_message="Texto custom")
         self.event.refresh_from_db()

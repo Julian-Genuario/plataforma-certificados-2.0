@@ -111,7 +111,11 @@ def panel_event_form(request, pk=None):
 
     if request.method == "POST":
         name = request.POST.get("name", "").strip()
-        slug = request.POST.get("slug", "").strip() or slugify(name)
+        slug = request.POST.get("slug", "").strip()
+        if not slug:
+            # Al editar, un slug vacío conserva el actual (cambiarlo rompe
+            # los links/iframes ya difundidos); solo se genera al crear.
+            slug = event.slug if event else slugify(name)
         active = request.POST.get("active") == "on"
         require_email = request.POST.get("require_email") == "on"
         info_text = request.POST.get("info_text", "").strip()
@@ -155,15 +159,18 @@ def panel_event_form(request, pk=None):
         return redirect("panel_events")
 
     embed_url = ""
+    public_url = ""
     if event:
-        embed_url = request.build_absolute_uri(
-            reverse("event_page", kwargs={"slug": event.slug}) + "?embed=1"
+        public_url = request.build_absolute_uri(
+            reverse("event_page", kwargs={"slug": event.slug})
         )
+        embed_url = public_url + "?embed=1"
 
     return render(request, "panel/event_form.html", {
         "active_page": "events",
         "event": event,
         "embed_url": embed_url,
+        "public_url": public_url,
     })
 
 
@@ -810,12 +817,14 @@ def panel_site_settings(request):
         messages.success(request, "Configuración guardada.")
         return redirect("panel_site_settings")
 
-    home_embed_url = request.build_absolute_uri(reverse("home") + "?embed=1")
+    home_public_url = request.build_absolute_uri(reverse("home"))
+    home_embed_url = home_public_url + "?embed=1"
 
     return render(request, "panel/site_settings.html", {
         "active_page": "apariencia",
         "site": site,
         "home_embed_url": home_embed_url,
+        "home_public_url": home_public_url,
     })
 
 
