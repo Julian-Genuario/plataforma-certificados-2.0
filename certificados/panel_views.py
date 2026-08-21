@@ -11,6 +11,7 @@ from django.http import HttpResponse, StreamingHttpResponse, FileResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
 
 from pypdf import PdfReader, PdfWriter
@@ -949,10 +950,13 @@ def panel_attendee_delete(request, event_pk, pk):
 @login_required(login_url="panel_login")
 def panel_attendees_clear(request, event_pk):
     event = get_object_or_404(Event, pk=event_pk)
+    next_url = request.POST.get("next", "")
     if request.method == "POST":
         count = event.attendees.count()
         event.attendees.all().delete()
         messages.success(request, f"{count} inscriptos eliminados.")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
     return redirect("panel_attendees", event_pk=event.pk)
 
 
@@ -981,11 +985,16 @@ def panel_attendees_all(request):
         attendee_count=Count("attendees"),
     ).order_by("name")
 
+    selected_event = None
+    if event_filter:
+        selected_event = next((ev for ev in events if str(ev.pk) == event_filter), None)
+
     return render(request, "panel/attendees_all.html", {
         "active_page": "attendees",
         "attendees": attendees,
         "events": events,
         "event_filter": event_filter,
+        "selected_event": selected_event,
         "search": search,
         "page": page,
         "total_pages": total_pages,

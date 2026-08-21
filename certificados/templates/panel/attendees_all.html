@@ -28,6 +28,12 @@
         </div>
     </form>
 
+    {% if selected_event and total %}
+    <div style="margin-bottom:16px;">
+        <button class="btn btn-danger btn-sm" onclick="confirmClearFiltered()">Limpiar todos ({{ selected_event.name }})</button>
+    </div>
+    {% endif %}
+
     <div class="table-wrap">
         <table>
             <thead>
@@ -92,4 +98,30 @@
     </div>
     {% endif %}
 </div>
+
+{% if selected_event %}
+<div class="modal-overlay" id="clearFilteredModal">
+    <div class="modal">
+        <h3>Limpiar todos los inscriptos</h3>
+        <p>Esto eliminará los {{ total }} inscriptos de "{{ selected_event.name }}". La descarga de ese evento volverá a ser libre hasta que cargues una nueva lista.</p>
+        <form method="post" action="{% url 'panel_attendees_clear' event_pk=selected_event.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('clearFilteredModal')">Cancelar</button>
+                <button type="submit" class="btn btn-danger">Eliminar todos</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function confirmClearFiltered() {
+    document.getElementById('clearFilteredModal').classList.add('active');
+}
+function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+}
+</script>
+{% endif %}
 {% endblock %}

@@ -340,6 +340,45 @@ class PanelEventFormTests(TestCase):
         self.assertEqual(self.event.download_limit, 1)
 
 
+class PanelAttendeesClearTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("admin3", password="x", is_staff=True)
+        self.client.force_login(self.user)
+        self.event_a = Event.objects.create(name="Evento A", slug="evento-a")
+        self.event_b = Event.objects.create(name="Evento B", slug="evento-b")
+        Attendee.objects.create(event=self.event_a, full_name="Uno", email="uno@test.com")
+        Attendee.objects.create(event=self.event_a, full_name="Dos", email="dos@test.com")
+        Attendee.objects.create(event=self.event_b, full_name="Otro", email="otro@test.com")
+
+    def test_clear_only_deletes_target_event(self):
+        self.client.post(reverse("panel_attendees_clear", kwargs={"event_pk": self.event_a.pk}))
+        self.assertEqual(self.event_a.attendees.count(), 0)
+        self.assertEqual(self.event_b.attendees.count(), 1)
+
+    def test_clear_redirects_to_safe_next(self):
+        next_url = reverse("panel_attendees_all") + "?event=" + str(self.event_a.pk)
+        resp = self.client.post(
+            reverse("panel_attendees_clear", kwargs={"event_pk": self.event_a.pk}),
+            {"next": next_url},
+        )
+        self.assertRedirects(resp, next_url)
+
+    def test_clear_ignores_unsafe_next(self):
+        resp = self.client.post(
+            reverse("panel_attendees_clear", kwargs={"event_pk": self.event_a.pk}),
+            {"next": "https://evil.example.com/"},
+        )
+        self.assertRedirects(resp, reverse("panel_attendees", kwargs={"event_pk": self.event_a.pk}))
+
+    def test_global_list_shows_clear_button_when_filtered(self):
+        resp = self.client.get(reverse("panel_attendees_all") + f"?event={self.event_a.pk}")
+        self.assertContains(resp, "Limpiar todos (Evento A)")
+
+    def test_global_list_hides_clear_button_without_filter(self):
+        resp = self.client.get(reverse("panel_attendees_all"))
+        self.assertNotContains(resp, "Limpiar todos (")
+
+
 @override_settings(MEDIA_ROOT=MEDIA)
 class ReportPdfTests(TestCase):
     @classmethod
