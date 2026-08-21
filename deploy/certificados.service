@@ -13,6 +13,7 @@ RuntimeDirectory=certificados
 RuntimeDirectoryMode=0750
 ExecStart=/opt/certificados/.venv/bin/gunicorn \
     --workers 3 \
+    --timeout 120 \
     --bind unix:/run/certificados/gunicorn.sock \
     config.wsgi:application
 Restart=on-failure

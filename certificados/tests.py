@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 
 import io
 
-from .models import Event, CertificateTemplate, DownloadLog, RejectedAttempt, Attendee
+from .models import Event, CertificateTemplate, DownloadLog, RejectedAttempt, Attendee, normalize_text
 from .views import DUPLICATE_MESSAGE, fit_font_size, baseline_offset
 from .attendees_io import parse_uploaded_file, parse_text
 
@@ -163,6 +163,39 @@ class BrisaplusImportTests(TestCase):
         self.assertEqual(len(clean), 2)
         self.assertEqual(errors, [])
         self.assertEqual(skipped, 0)
+
+
+class PanelAttendeesImportBulkCreateTests(TestCase):
+    """El import usa bulk_create (no Attendee.objects.create en loop) para
+    no exceder el timeout del worker con listas grandes. bulk_create no
+    llama a save(), asi que hay que verificar que los campos normalizados
+    se sigan completando igual."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("admin4", password="x", is_staff=True)
+        self.client.force_login(self.user)
+        self.event = Event.objects.create(name="Vacunologia", slug="vacunologia")
+        Attendee.objects.create(event=self.event, full_name="Ya Existe", email="ya@existe.com")
+
+    def test_bulk_import_creates_and_normalizes_fields(self):
+        pasted = "Juan Pérez, juan@mail.com\nMaría Gómez, maria@mail.com"
+        resp = self.client.post(
+            reverse("panel_attendees_import", kwargs={"event_pk": self.event.pk}),
+            {"pasted_text": pasted},
+        )
+        self.assertRedirects(resp, reverse("panel_attendees", kwargs={"event_pk": self.event.pk}))
+        self.assertEqual(self.event.attendees.count(), 3)
+        juan = self.event.attendees.get(email="juan@mail.com")
+        self.assertEqual(juan.email_normalized, "juan@mail.com")
+        self.assertEqual(juan.full_name_normalized, normalize_text("Juan Pérez"))
+
+    def test_bulk_import_skips_duplicates_against_existing(self):
+        pasted = "Ya Existe, ya@existe.com\nNueva Persona, nueva@mail.com"
+        self.client.post(
+            reverse("panel_attendees_import", kwargs={"event_pk": self.event.pk}),
+            {"pasted_text": pasted},
+        )
+        self.assertEqual(self.event.attendees.count(), 2)
 
 
 class PublicUrlTests(TestCase):

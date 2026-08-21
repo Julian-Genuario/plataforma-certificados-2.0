@@ -857,7 +857,8 @@ def _do_attendees_import(request, event):
     Returns (created, duplicated, errors, skipped_inactive). Caller is
     responsible for showing messages and redirecting.
     """
-    from .models import normalize_email
+    from django.db import transaction
+    from .models import normalize_email, normalize_text
 
     uploaded = request.FILES.get("file")
     pasted = request.POST.get("pasted_text", "")
@@ -879,21 +880,33 @@ def _do_attendees_import(request, event):
         errors.extend(text_errors)
         skipped_inactive += text_skipped
 
-    if replace_existing:
-        event.attendees.all().delete()
+    with transaction.atomic():
+        if replace_existing:
+            event.attendees.all().delete()
 
-    existing_emails = set(event.attendees.values_list("email_normalized", flat=True))
+        existing_emails = set(event.attendees.values_list("email_normalized", flat=True))
 
-    created = 0
-    duplicated = 0
-    for name, email in clean:
-        email_norm = normalize_email(email)
-        if email_norm in existing_emails:
-            duplicated += 1
-            continue
-        existing_emails.add(email_norm)
-        Attendee.objects.create(event=event, full_name=name, email=email)
-        created += 1
+        to_create = []
+        duplicated = 0
+        for name, email in clean:
+            email_norm = normalize_email(email)
+            if email_norm in existing_emails:
+                duplicated += 1
+                continue
+            existing_emails.add(email_norm)
+            to_create.append(Attendee(
+                event=event,
+                full_name=name,
+                email=email,
+                full_name_normalized=normalize_text(name),
+                email_normalized=email_norm,
+            ))
+
+        # bulk_create en un solo INSERT masivo: con miles de filas, crearlas
+        # una por una via .create() podia superar el timeout del worker de
+        # gunicorn (visto en produccion con un export de 1500+ inscriptos).
+        Attendee.objects.bulk_create(to_create, batch_size=500)
+        created = len(to_create)
 
     return created, duplicated, errors, skipped_inactive
 
