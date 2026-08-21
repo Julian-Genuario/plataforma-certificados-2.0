@@ -29,7 +29,7 @@ EMAIL_HEADERS = {
 ACTIVE_VALUES = {"si", "sí", "yes", "y", "1", "true", "activo", "activa"}
 
 MAX_NAME_LEN = 200
-MAX_ROWS = 5000
+MAX_ROWS = 60000
 
 
 class ParseError(Exception):
