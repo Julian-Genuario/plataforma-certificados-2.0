@@ -31,9 +31,37 @@ ACTIVE_VALUES = {"si", "sí", "yes", "y", "1", "true", "activo", "activa"}
 MAX_NAME_LEN = 200
 MAX_ROWS = 60000
 
+# Placeholders comunes en exports con datos de prueba o mal cargados.
+_PLACEHOLDER_WORDS = {
+    "test", "tests", "prueba", "pruebas", "asd", "asdf", "qwerty",
+    "xxx", "sample", "ejemplo", "nn", "sinnombre",
+}
+
 
 class ParseError(Exception):
     pass
+
+
+def is_suspicious_name(name):
+    """Heurística para nombres que pintan a dato corrupto o de prueba.
+
+    Devuelve (es_sospechoso, motivo). No reemplaza la validación normal
+    (nombre vacío / email inválido siguen yendo a `errors`); esto corre
+    sobre filas que ya pasaron esa validación.
+    """
+    n = (name or "").strip()
+    if "?" in n:
+        return True, "caracteres '?' (fallo de encoding)"
+    if any(ch.isdigit() for ch in n):
+        return True, "contiene números"
+    if len(n.replace(" ", "")) <= 1:
+        return True, "nombre de una sola letra"
+    words = [w.lower() for w in n.split() if w]
+    if len(words) >= 2 and words[0] == words[1]:
+        return True, "palabra repetida"
+    if any(w in _PLACEHOLDER_WORDS for w in words):
+        return True, "palabra de prueba/placeholder"
+    return False, ""
 
 
 def _norm_header(h):

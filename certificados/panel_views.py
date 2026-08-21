@@ -848,17 +848,19 @@ def panel_attendees(request, event_pk):
         "search": search,
         "total": total,
         "truncated": total > 500,
+        "suspicious_count": event.suspicious_attendees.count(),
     })
 
 
 def _do_attendees_import(request, event):
     """Process POST data and import attendees for the given event.
 
-    Returns (created, duplicated, errors, skipped_inactive). Caller is
-    responsible for showing messages and redirecting.
+    Returns (created, duplicated, errors, skipped_inactive, suspicious).
+    Caller is responsible for showing messages and redirecting.
     """
     from django.db import transaction
-    from .models import normalize_email, normalize_text
+    from .models import normalize_email, normalize_text, SuspiciousAttendee
+    from .attendees_io import is_suspicious_name
 
     uploaded = request.FILES.get("file")
     pasted = request.POST.get("pasted_text", "")
@@ -883,13 +885,30 @@ def _do_attendees_import(request, event):
     with transaction.atomic():
         if replace_existing:
             event.attendees.all().delete()
+            event.suspicious_attendees.all().delete()
 
         existing_emails = set(event.attendees.values_list("email_normalized", flat=True))
+        existing_suspicious_emails = set(
+            event.suspicious_attendees.values_list("email", flat=True)
+        )
 
         to_create = []
+        to_create_suspicious = []
         duplicated = 0
         for name, email in clean:
             email_norm = normalize_email(email)
+            is_sus, reason = is_suspicious_name(name)
+            if is_sus:
+                # No se crea como Attendee: queda para revisar a mano en
+                # el panel (Inscriptos > Revisar). Si ya está en la cola
+                # de revisión o ya es un inscripto válido, no se duplica.
+                if email_norm in existing_suspicious_emails or email_norm in existing_emails:
+                    continue
+                existing_suspicious_emails.add(email_norm)
+                to_create_suspicious.append(SuspiciousAttendee(
+                    event=event, full_name=name, email=email, reason=reason,
+                ))
+                continue
             if email_norm in existing_emails:
                 duplicated += 1
                 continue
@@ -906,17 +925,21 @@ def _do_attendees_import(request, event):
         # una por una via .create() podia superar el timeout del worker de
         # gunicorn (visto en produccion con un export de 1500+ inscriptos).
         Attendee.objects.bulk_create(to_create, batch_size=500)
+        SuspiciousAttendee.objects.bulk_create(to_create_suspicious, batch_size=500)
         created = len(to_create)
+        suspicious = len(to_create_suspicious)
 
-    return created, duplicated, errors, skipped_inactive
+    return created, duplicated, errors, skipped_inactive, suspicious
 
 
-def _summarize_import(request, event, created, duplicated, errors, skipped_inactive=0):
+def _summarize_import(request, event, created, duplicated, errors, skipped_inactive=0, suspicious=0):
     msg = f"{created} inscriptos importados."
     if duplicated:
         msg += f" {duplicated} duplicados omitidos."
     if skipped_inactive:
         msg += f" {skipped_inactive} sin suscripción activa omitidos."
+    if suspicious:
+        msg += f" {suspicious} con nombre sospechoso, quedaron para revisar."
     if errors:
         msg += f" {len(errors)} filas con errores."
     messages.success(request, msg)
@@ -930,16 +953,16 @@ def panel_attendees_import(request, event_pk):
 
     if request.method == "POST":
         try:
-            created, duplicated, errors, skipped_inactive = _do_attendees_import(request, event)
+            created, duplicated, errors, skipped_inactive, suspicious = _do_attendees_import(request, event)
         except ParseError as exc:
             messages.error(request, str(exc))
             return redirect("panel_attendees_import", event_pk=event.pk)
 
-        if not created and not duplicated and not errors and not skipped_inactive:
+        if not created and not duplicated and not errors and not skipped_inactive and not suspicious:
             messages.error(request, "No se cargaron datos. Subí un archivo o pegá la lista.")
             return redirect("panel_attendees_import", event_pk=event.pk)
 
-        _summarize_import(request, event, created, duplicated, errors, skipped_inactive)
+        _summarize_import(request, event, created, duplicated, errors, skipped_inactive, suspicious)
         return redirect("panel_attendees", event_pk=event.pk)
 
     session_errors = request.session.pop(f"attendee_errors_{event.pk}", None)
@@ -958,6 +981,94 @@ def panel_attendee_delete(request, event_pk, pk):
         attendee.delete()
         messages.success(request, "Inscripto eliminado.")
     return redirect("panel_attendees", event_pk=event.pk)
+
+
+@login_required(login_url="panel_login")
+def panel_suspicious_attendees(request, event_pk):
+    from .models import SuspiciousAttendee
+
+    event = get_object_or_404(Event, pk=event_pk)
+    suspicious = event.suspicious_attendees.all()
+    return render(request, "panel/attendees_suspicious.html", {
+        "active_page": "attendees",
+        "event": event,
+        "suspicious": suspicious,
+        "total": suspicious.count(),
+    })
+
+
+@login_required(login_url="panel_login")
+def panel_suspicious_approve(request, event_pk, pk):
+    from django.db import transaction
+    from .models import SuspiciousAttendee, normalize_email, normalize_text
+
+    event = get_object_or_404(Event, pk=event_pk)
+    item = get_object_or_404(SuspiciousAttendee, pk=pk, event=event)
+    if request.method == "POST":
+        with transaction.atomic():
+            email_norm = normalize_email(item.email)
+            if not event.attendees.filter(email_normalized=email_norm).exists():
+                Attendee.objects.create(
+                    event=event,
+                    full_name=item.full_name,
+                    email=item.email,
+                    full_name_normalized=normalize_text(item.full_name),
+                    email_normalized=email_norm,
+                )
+            item.delete()
+        messages.success(request, f'"{item.full_name}" aprobado e importado.')
+    return redirect("panel_suspicious_attendees", event_pk=event.pk)
+
+
+@login_required(login_url="panel_login")
+def panel_suspicious_discard(request, event_pk, pk):
+    from .models import SuspiciousAttendee
+
+    event = get_object_or_404(Event, pk=event_pk)
+    item = get_object_or_404(SuspiciousAttendee, pk=pk, event=event)
+    if request.method == "POST":
+        item.delete()
+        messages.success(request, "Descartado.")
+    return redirect("panel_suspicious_attendees", event_pk=event.pk)
+
+
+@login_required(login_url="panel_login")
+def panel_suspicious_approve_all(request, event_pk):
+    from django.db import transaction
+    from .models import SuspiciousAttendee, normalize_email, normalize_text
+
+    event = get_object_or_404(Event, pk=event_pk)
+    if request.method == "POST":
+        with transaction.atomic():
+            existing_emails = set(event.attendees.values_list("email_normalized", flat=True))
+            to_create = []
+            for item in event.suspicious_attendees.all():
+                email_norm = normalize_email(item.email)
+                if email_norm in existing_emails:
+                    continue
+                existing_emails.add(email_norm)
+                to_create.append(Attendee(
+                    event=event,
+                    full_name=item.full_name,
+                    email=item.email,
+                    full_name_normalized=normalize_text(item.full_name),
+                    email_normalized=email_norm,
+                ))
+            Attendee.objects.bulk_create(to_create)
+            count = event.suspicious_attendees.count()
+            event.suspicious_attendees.all().delete()
+        messages.success(request, f"{count} aprobados e importados.")
+    return redirect("panel_suspicious_attendees", event_pk=event.pk)
+
+
+@login_required(login_url="panel_login")
+def panel_suspicious_discard_all(request, event_pk):
+    event = get_object_or_404(Event, pk=event_pk)
+    if request.method == "POST":
+        count = event.suspicious_attendees.count()
+        event.suspicious_attendees.all().delete()
+        messages.success(request, f"{count} descartados.")
+    return redirect("panel_suspicious_attendees", event_pk=event.pk)
 
 
 @login_required(login_url="panel_login")
@@ -1028,16 +1139,16 @@ def panel_attendees_import_all(request):
         event = get_object_or_404(Event, pk=event_id)
 
         try:
-            created, duplicated, errors, skipped_inactive = _do_attendees_import(request, event)
+            created, duplicated, errors, skipped_inactive, suspicious = _do_attendees_import(request, event)
         except ParseError as exc:
             messages.error(request, str(exc))
             return redirect("panel_attendees_import_all")
 
-        if not created and not duplicated and not errors and not skipped_inactive:
+        if not created and not duplicated and not errors and not skipped_inactive and not suspicious:
             messages.error(request, "No se cargaron datos. Subí un archivo o pegá la lista.")
             return redirect("panel_attendees_import_all")
 
-        _summarize_import(request, event, created, duplicated, errors, skipped_inactive)
+        _summarize_import(request, event, created, duplicated, errors, skipped_inactive, suspicious)
         return redirect("panel_attendees", event_pk=event.pk)
 
     return render(request, "panel/attendees_import_all.html", {

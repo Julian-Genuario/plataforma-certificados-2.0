@@ -28,6 +28,13 @@
         </div>
     </div>
 
+    {% if suspicious_count %}
+    <div class="alert-error" style="background:#fef3c7;color:#92400e;border-color:#fde68a;margin:0 0 16px 0;padding:12px 16px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;">
+        <span>⚠️ {{ suspicious_count }} inscripto{{ suspicious_count|pluralize }} con nombre sospechoso (????, números, palabras repetidas/placeholder) quedaron fuera del import.</span>
+        <a href="{% url 'panel_suspicious_attendees' event_pk=event.pk %}" class="btn btn-secondary btn-sm">Revisar</a>
+    </div>
+    {% endif %}
+
     <form method="get" class="filters">
         <input type="text" name="search" value="{{ search }}" placeholder="Buscar por nombre o email..." style="min-width:280px;">
         <button type="submit" class="btn btn-secondary btn-sm">Buscar</button>

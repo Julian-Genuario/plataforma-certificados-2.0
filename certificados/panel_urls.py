@@ -35,6 +35,13 @@ urlpatterns = [
     path("eventos/<int:event_pk>/inscriptos/limpiar/", v.panel_attendees_clear, name="panel_attendees_clear"),
     path("eventos/<int:event_pk>/inscriptos/<int:pk>/eliminar/", v.panel_attendee_delete, name="panel_attendee_delete"),
 
+    # Nombres sospechosos (import los deja afuera para revisar a mano)
+    path("eventos/<int:event_pk>/inscriptos/revisar/", v.panel_suspicious_attendees, name="panel_suspicious_attendees"),
+    path("eventos/<int:event_pk>/inscriptos/revisar/aprobar-todos/", v.panel_suspicious_approve_all, name="panel_suspicious_approve_all"),
+    path("eventos/<int:event_pk>/inscriptos/revisar/descartar-todos/", v.panel_suspicious_discard_all, name="panel_suspicious_discard_all"),
+    path("eventos/<int:event_pk>/inscriptos/revisar/<int:pk>/aprobar/", v.panel_suspicious_approve, name="panel_suspicious_approve"),
+    path("eventos/<int:event_pk>/inscriptos/revisar/<int:pk>/descartar/", v.panel_suspicious_discard, name="panel_suspicious_discard"),
+
     # Logs
     path("descargas/", v.panel_logs, name="panel_logs"),
     path("descargas/exportar/", v.panel_logs_export, name="panel_logs_export"),

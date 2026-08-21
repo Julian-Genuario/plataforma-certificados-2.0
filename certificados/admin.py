@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Event, CertificateTemplate, DownloadLog, RejectedAttempt, Attendee
+from .models import Event, CertificateTemplate, DownloadLog, RejectedAttempt, Attendee, SuspiciousAttendee
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
@@ -28,4 +28,11 @@ class RejectedAttemptAdmin(admin.ModelAdmin):
 class AttendeeAdmin(admin.ModelAdmin):
     list_display = ("full_name", "email", "event", "created_at")
     list_filter = ("event",)
+    search_fields = ("full_name", "email")
+
+
+@admin.register(SuspiciousAttendee)
+class SuspiciousAttendeeAdmin(admin.ModelAdmin):
+    list_display = ("full_name", "email", "event", "reason", "created_at")
+    list_filter = ("event", "reason")
     search_fields = ("full_name", "email")

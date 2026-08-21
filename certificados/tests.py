@@ -165,6 +165,39 @@ class BrisaplusImportTests(TestCase):
         self.assertEqual(skipped, 0)
 
 
+class SuspiciousNameTests(TestCase):
+    def test_normal_name_not_suspicious(self):
+        from .attendees_io import is_suspicious_name
+        is_sus, reason = is_suspicious_name("Juan Pérez")
+        self.assertFalse(is_sus)
+
+    def test_question_marks_are_suspicious(self):
+        from .attendees_io import is_suspicious_name
+        is_sus, reason = is_suspicious_name("???? ????")
+        self.assertTrue(is_sus)
+        self.assertIn("encoding", reason)
+
+    def test_digits_in_name_are_suspicious(self):
+        from .attendees_io import is_suspicious_name
+        is_sus, reason = is_suspicious_name("Juan123 Perez")
+        self.assertTrue(is_sus)
+
+    def test_single_letter_is_suspicious(self):
+        from .attendees_io import is_suspicious_name
+        is_sus, reason = is_suspicious_name("X")
+        self.assertTrue(is_sus)
+
+    def test_repeated_word_is_suspicious(self):
+        from .attendees_io import is_suspicious_name
+        is_sus, reason = is_suspicious_name("test test")
+        self.assertTrue(is_sus)
+
+    def test_placeholder_word_is_suspicious(self):
+        from .attendees_io import is_suspicious_name
+        is_sus, reason = is_suspicious_name("asd qwerty")
+        self.assertTrue(is_sus)
+
+
 class PanelAttendeesImportBulkCreateTests(TestCase):
     """El import usa bulk_create (no Attendee.objects.create en loop) para
     no exceder el timeout del worker con listas grandes. bulk_create no
@@ -196,6 +229,79 @@ class PanelAttendeesImportBulkCreateTests(TestCase):
             {"pasted_text": pasted},
         )
         self.assertEqual(self.event.attendees.count(), 2)
+
+
+class PanelSuspiciousAttendeesTests(TestCase):
+    def setUp(self):
+        from .models import SuspiciousAttendee
+        self.SuspiciousAttendee = SuspiciousAttendee
+        self.user = User.objects.create_user("admin5", password="x", is_staff=True)
+        self.client.force_login(self.user)
+        self.event = Event.objects.create(name="Vacunologia", slug="vacunologia")
+
+    def test_import_routes_suspicious_names_away_from_attendees(self):
+        pasted = "Juan Perez, juan@mail.com\n???? ????, raro@mail.com\nAna123, ana@mail.com"
+        resp = self.client.post(
+            reverse("panel_attendees_import", kwargs={"event_pk": self.event.pk}),
+            {"pasted_text": pasted},
+        )
+        self.assertRedirects(resp, reverse("panel_attendees", kwargs={"event_pk": self.event.pk}))
+        self.assertEqual(self.event.attendees.count(), 1)
+        self.assertEqual(self.event.attendees.first().email, "juan@mail.com")
+        self.assertEqual(self.event.suspicious_attendees.count(), 2)
+
+    def test_approve_creates_attendee_and_removes_from_queue(self):
+        item = self.SuspiciousAttendee.objects.create(
+            event=self.event, full_name="Raro123", email="raro@mail.com", reason="contiene números"
+        )
+        resp = self.client.post(
+            reverse("panel_suspicious_approve", kwargs={"event_pk": self.event.pk, "pk": item.pk})
+        )
+        self.assertRedirects(resp, reverse("panel_suspicious_attendees", kwargs={"event_pk": self.event.pk}))
+        self.assertEqual(self.event.attendees.count(), 1)
+        self.assertEqual(self.event.suspicious_attendees.count(), 0)
+
+    def test_discard_removes_without_creating_attendee(self):
+        item = self.SuspiciousAttendee.objects.create(
+            event=self.event, full_name="Raro123", email="raro@mail.com", reason="contiene números"
+        )
+        self.client.post(
+            reverse("panel_suspicious_discard", kwargs={"event_pk": self.event.pk, "pk": item.pk})
+        )
+        self.assertEqual(self.event.attendees.count(), 0)
+        self.assertEqual(self.event.suspicious_attendees.count(), 0)
+
+    def test_approve_all_creates_all_and_empties_queue(self):
+        self.SuspiciousAttendee.objects.create(event=self.event, full_name="Uno1", email="uno@mail.com", reason="x")
+        self.SuspiciousAttendee.objects.create(event=self.event, full_name="Dos2", email="dos@mail.com", reason="x")
+        self.client.post(
+            reverse("panel_suspicious_approve_all", kwargs={"event_pk": self.event.pk})
+        )
+        self.assertEqual(self.event.attendees.count(), 2)
+        self.assertEqual(self.event.suspicious_attendees.count(), 0)
+
+    def test_discard_all_empties_queue_without_creating_attendees(self):
+        self.SuspiciousAttendee.objects.create(event=self.event, full_name="Uno1", email="uno@mail.com", reason="x")
+        self.SuspiciousAttendee.objects.create(event=self.event, full_name="Dos2", email="dos@mail.com", reason="x")
+        self.client.post(
+            reverse("panel_suspicious_discard_all", kwargs={"event_pk": self.event.pk})
+        )
+        self.assertEqual(self.event.attendees.count(), 0)
+        self.assertEqual(self.event.suspicious_attendees.count(), 0)
+
+    def test_reimporting_same_broken_row_does_not_duplicate_queue(self):
+        pasted = "???? ????, raro@mail.com"
+        for _ in range(2):
+            self.client.post(
+                reverse("panel_attendees_import", kwargs={"event_pk": self.event.pk}),
+                {"pasted_text": pasted},
+            )
+        self.assertEqual(self.event.suspicious_attendees.count(), 1)
+
+    def test_badge_shown_on_attendees_page_when_pending(self):
+        self.SuspiciousAttendee.objects.create(event=self.event, full_name="Uno1", email="uno@mail.com", reason="x")
+        resp = self.client.get(reverse("panel_attendees", kwargs={"event_pk": self.event.pk}))
+        self.assertContains(resp, "nombre sospechoso")
 
 
 class PublicUrlTests(TestCase):

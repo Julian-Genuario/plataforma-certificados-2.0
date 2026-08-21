@@ -218,3 +218,30 @@ class Attendee(models.Model):
 
     def __str__(self):
         return f"{self.full_name} <{self.email}>"
+
+
+class SuspiciousAttendee(models.Model):
+    """Fila de un import con nombre que pinta a dato corrupto/placeholder
+    (????, números en el nombre, palabra repetida, etc.). No se crea como
+    Attendee automáticamente: queda acá para que alguien la revise a mano
+    y decida aprobarla o descartarla."""
+
+    event = models.ForeignKey(
+        Event, on_delete=models.CASCADE, related_name="suspicious_attendees"
+    )
+    full_name = models.CharField(max_length=200)
+    email = models.EmailField()
+    reason = models.CharField(max_length=200)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event", "email"],
+                name="unique_event_suspicious_email",
+            ),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.event.slug} - {self.full_name} ({self.reason})"
