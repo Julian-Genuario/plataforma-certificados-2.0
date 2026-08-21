@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('certificados', '0009_sitesettings'),
+        ('certificados', '0011_attendee_download_limit'),
     ]
 
     operations = [

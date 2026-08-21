@@ -105,6 +105,11 @@ class Event(models.Model):
         help_text="Mensaje que se muestra cuando la persona alcanza el límite "
                   "de descargas. Vacío = texto por defecto.",
     )
+    free_download = models.BooleanField(
+        default=False,
+        help_text="Si está activado, cualquier persona puede descargar aunque "
+                  "no esté en la lista de inscriptos (descarga libre).",
+    )
 
     def __str__(self):
         return self.name
@@ -201,6 +206,11 @@ class Attendee(models.Model):
     full_name_normalized = models.CharField(max_length=200, db_index=True)
     email_normalized = models.EmailField(db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    download_limit = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Limite propio de descargas. Vacio = usa el limite global del evento.",
+    )
 
     class Meta:
         constraints = [
