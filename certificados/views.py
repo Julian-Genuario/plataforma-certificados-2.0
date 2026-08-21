@@ -137,26 +137,31 @@ def build_pdf_bytes(template, full_name):
     return out.getvalue()
 
 
-def _find_attendee(event, full_name, email):
-    """Return the matching Attendee for this event, or None if not found."""
-    name_norm = normalize_text(full_name)
+def _find_attendee_by_email(event, email):
+    """Return the matching Attendee for this event by email alone, or None.
+
+    El email es el dato de referencia (más confiable que lo que la persona
+    tipea a mano); el nombre no se exige exacto, así una persona que
+    escribe mal su nombre igual recibe el certificado. El nombre correcto
+    sale de la lista de inscriptos, no de lo que ingresó."""
     email_norm = normalize_email(email)
-    if not name_norm or not email_norm:
+    if not email_norm:
         return None
-    return event.attendees.filter(
-        full_name_normalized=name_norm,
-        email_normalized=email_norm,
-    ).first()
+    return event.attendees.filter(email_normalized=email_norm).first()
 
 
 def _build_certificate_response(event, full_name, request, manual=False, email="", failure_redirect=None):
     """Validate, log and generate the certificate PDF as a FileResponse.
 
     Validation rules (skipped when manual=True):
-    - If event.require_email is True: email is mandatory.
-    - If event has attendees loaded: (name, email) must match a registered
-      attendee. Match is case- and accent-insensitive.
-    - Otherwise: free download.
+    - If event.require_email is True: email is mandatory, and matching
+      against the attendee list is by email alone (el nombre tipeado no
+      necesita coincidir exacto: tolera errores de tipeo). El certificado
+      se genera con el nombre cargado en la lista, no con lo que escribió
+      la persona.
+    - If event.require_email is False: matches by name (case- and
+      accent-insensitive) since no email is collected.
+    - If event has no attendees loaded: free download.
     """
     if not full_name:
         return HttpResponseBadRequest("Nombre vacío.")
@@ -186,7 +191,7 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
                 name_norm = normalize_text(full_name)
                 matched_attendee = event.attendees.filter(full_name_normalized=name_norm).first()
             else:
-                matched_attendee = _find_attendee(event, full_name, email)
+                matched_attendee = _find_attendee_by_email(event, email)
             if matched_attendee is None:
                 return _fail(
                     "No figura en la lista de inscriptos. Verificar los datos ingresados.",

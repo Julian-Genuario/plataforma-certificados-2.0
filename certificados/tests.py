@@ -101,6 +101,29 @@ class DownloadFlowTests(TestCase):
         self.assertEqual(DownloadLog.objects.count(), 0)
         self.assertEqual(RejectedAttempt.objects.get().reason, "not_in_list")
 
+    def test_typo_in_name_still_succeeds_if_email_matches(self):
+        # El email es la referencia; un error de tipeo en el nombre no
+        # bloquea la descarga.
+        resp = self.client.post(self.url, {"full_name": "Juna Peres", "email": "juan@mail.com"})
+        self.assertEqual(resp.status_code, 200)
+        log = DownloadLog.objects.get()
+        self.assertIsNotNone(log.attendee)
+
+    def test_certificate_uses_registered_name_not_typed_name(self):
+        # El PDF (y el log) usan el nombre cargado en la lista, no el que
+        # escribio la persona con el error de tipeo.
+        self.client.post(self.url, {"full_name": "juan peres", "email": "juan@mail.com"})
+        log = DownloadLog.objects.get()
+        self.assertEqual(log.name_entered, "Juan Pérez")
+
+    def test_correct_name_wrong_email_still_rejected(self):
+        # El nombre exacto no alcanza si el email no matchea: el email
+        # sigue siendo el dato de referencia.
+        resp = self.client.post(self.url, {"full_name": "Juan Pérez", "email": "otro@mail.com"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(DownloadLog.objects.count(), 0)
+        self.assertEqual(RejectedAttempt.objects.get().reason, "not_in_list")
+
     def test_missing_email_rejected(self):
         resp = self.client.post(self.url, {"full_name": "Juan Pérez", "email": ""})
         self.assertEqual(resp.status_code, 302)
