@@ -341,6 +341,78 @@ class PanelSuspiciousAttendeesTests(TestCase):
         self.assertContains(resp, "nombre sospechoso")
 
 
+@override_settings(MEDIA_ROOT=MEDIA)
+class TemplateUploadTests(TestCase):
+    """El panel debe aceptar imágenes como template (convirtiéndolas a PDF)
+    y rechazar archivos ilegibles con un mensaje, nunca guardarlos tal cual.
+    Caso real 27-08: se subió un JPEG como template y toda descarga tiraba
+    500 (pypdf: "invalid pdf header") hasta reemplazar el archivo a mano."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("admin7", password="x", is_staff=True)
+        self.client.force_login(self.user)
+        self.event = Event.objects.create(name="Jornada", slug="jornada", require_email=True)
+
+    def _make_jpeg_bytes(self):
+        from PIL import Image
+        buf = BytesIO()
+        Image.new("RGB", (160, 113), "#0a5c36").save(buf, format="JPEG")
+        return buf.getvalue()
+
+    def test_uploading_jpeg_creates_working_pdf_template(self):
+        resp = self.client.post(reverse("panel_template_create"), {
+            "event": self.event.pk,
+            "pdf": SimpleUploadedFile("diseno.jpeg", self._make_jpeg_bytes(), content_type="image/jpeg"),
+        })
+        self.assertRedirects(resp, reverse("panel_templates"))
+        template = CertificateTemplate.objects.get(event=self.event)
+        self.assertTrue(template.pdf.name.endswith(".pdf"))
+        from pypdf import PdfReader
+        reader = PdfReader(template.pdf.path)  # no debe explotar
+        self.assertEqual(len(reader.pages), 1)
+
+    def test_editing_with_jpeg_also_converts(self):
+        template = CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        resp = self.client.post(reverse("panel_template_edit", kwargs={"pk": template.pk}), {
+            "event": self.event.pk,
+            "pdf": SimpleUploadedFile("nuevo.jpg", self._make_jpeg_bytes(), content_type="image/jpeg"),
+        })
+        self.assertRedirects(resp, reverse("panel_templates"))
+        template.refresh_from_db()
+        self.assertTrue(template.pdf.name.endswith(".pdf"))
+        from pypdf import PdfReader
+        PdfReader(template.pdf.path)
+
+    def test_unreadable_file_rejected_with_message(self):
+        resp = self.client.post(reverse("panel_template_create"), {
+            "event": self.event.pk,
+            "pdf": SimpleUploadedFile("roto.pdf", b"esto no es un pdf ni una imagen"),
+        }, follow=True)
+        self.assertEqual(CertificateTemplate.objects.count(), 0)
+        self.assertContains(resp, "no se pudo leer")
+
+    def test_download_with_corrupt_template_fails_friendly_not_500(self):
+        # Defensa extra: si un template ilegible quedó en la base igual
+        # (cargado antes de la validación), la descarga no debe tirar 500.
+        template = CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("roto.pdf", b"no soy un pdf"),
+            mode="coords",
+        )
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        resp = self.client.post(
+            reverse("download_certificate", kwargs={"slug": self.event.slug}),
+            {"full_name": "Juan Pérez", "email": "juan@mail.com"},
+            follow=True,
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "certificado no se puede generar")
+
+
 class PublicUrlTests(TestCase):
     def test_event_page_url_has_single_e_prefix(self):
         # La URL pública que se difunde: /e/<slug>/, no /e/e/<slug>/.

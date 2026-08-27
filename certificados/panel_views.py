@@ -209,6 +209,47 @@ def panel_templates(request):
     })
 
 
+def _prepare_template_pdf(uploaded):
+    """Devuelve un archivo PDF listo para guardar como template.
+
+    Acepta un PDF real (se valida que abra) o una imagen JPG/PNG, que se
+    convierte a un PDF de una página con el mismo aspecto. Si el archivo
+    no es ninguna de las dos cosas, ValueError con mensaje para el panel.
+    Sin esto, un JPEG subido como template se guardaba tal cual y toda
+    descarga tiraba 500 recién al generar (caso real, 27-08)."""
+    head = uploaded.read(8)
+    uploaded.seek(0)
+
+    if head.startswith(b"%PDF"):
+        try:
+            PdfReader(uploaded)
+        except Exception:
+            raise ValueError("El archivo no se pudo leer como PDF. ¿Está dañado?")
+        uploaded.seek(0)
+        return uploaded
+
+    if head.startswith(b"\xff\xd8") or head.startswith(b"\x89PNG"):
+        from django.core.files.base import ContentFile
+        from reportlab.lib.utils import ImageReader
+
+        image = ImageReader(uploaded)
+        img_w, img_h = image.getSize()
+        # Página con el aspecto exacto de la imagen, lado largo = A4 (842pt),
+        # para que las coordenadas del editor queden en la escala habitual.
+        scale = 842.0 / max(img_w, img_h)
+        page_w, page_h = img_w * scale, img_h * scale
+        buf = BytesIO()
+        pdf_canvas = canvas.Canvas(buf, pagesize=(page_w, page_h))
+        pdf_canvas.drawImage(image, 0, 0, width=page_w, height=page_h)
+        pdf_canvas.save()
+        base = (uploaded.name or "template").rsplit(".", 1)[0]
+        return ContentFile(buf.getvalue(), name=base + ".pdf")
+
+    raise ValueError(
+        "El archivo no se pudo leer: subí un PDF o una imagen JPG/PNG."
+    )
+
+
 @login_required(login_url="panel_login")
 def panel_template_form(request, pk=None):
     template = get_object_or_404(CertificateTemplate, pk=pk) if pk else None
@@ -225,9 +266,19 @@ def panel_template_form(request, pk=None):
         field_name = request.POST.get("field_name", "full_name")
         max_width = float(request.POST.get("max_width") or 0)
 
+        upload = request.FILES.get("pdf")
+        if upload:
+            try:
+                upload = _prepare_template_pdf(upload)
+            except ValueError as exc:
+                messages.error(request, str(exc))
+                if template:
+                    return redirect("panel_template_edit", pk=template.pk)
+                return redirect("panel_template_create")
+
         if template:
-            if request.FILES.get("pdf"):
-                template.pdf = request.FILES["pdf"]
+            if upload:
+                template.pdf = upload
             template.mode = mode
             template.page_number = page_number
             template.x = x
@@ -240,13 +291,13 @@ def panel_template_form(request, pk=None):
             template.save()
             messages.success(request, "Template actualizado.")
         else:
-            if not request.FILES.get("pdf"):
+            if not upload:
                 messages.error(request, "Debes subir un archivo PDF.")
                 return redirect("panel_template_create")
             event = get_object_or_404(Event, pk=event_id)
             template = CertificateTemplate.objects.create(
                 event=event,
-                pdf=request.FILES["pdf"],
+                pdf=upload,
                 mode=mode,
                 page_number=page_number,
                 x=x,

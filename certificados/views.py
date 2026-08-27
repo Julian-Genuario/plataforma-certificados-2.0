@@ -224,6 +224,21 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
 
     template = get_object_or_404(CertificateTemplate, event=event)
 
+    try:
+        pdf_bytes = build_pdf_bytes(template, full_name)
+    except ValueError as exc:
+        return HttpResponseBadRequest(str(exc))
+    except Exception:
+        # Template ilegible (p.ej. una imagen subida como PDF, caso 27-08)
+        # o generación rota: error amigable en vez de 500. Importante: sin
+        # registrar DownloadLog, la persona no recibió nada.
+        msg = "El certificado no se puede generar en este momento. Avisar al organizador del evento."
+        if manual:
+            return HttpResponseBadRequest(msg)
+        return _fail(msg, "template_error")
+
+    # Se registra la descarga recién acá: si la generación falla, el intento
+    # no debe consumir el límite de descargas de la persona.
     DownloadLog.objects.create(
         event=event,
         name_entered=full_name,
@@ -234,11 +249,6 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
         user_agent=request.META.get("HTTP_USER_AGENT", ""),
         manual=manual,
     )
-
-    try:
-        pdf_bytes = build_pdf_bytes(template, full_name)
-    except ValueError as exc:
-        return HttpResponseBadRequest(str(exc))
 
     filename = f"certificado-{event.slug}.pdf"
     return FileResponse(BytesIO(pdf_bytes), as_attachment=True, filename=filename)
