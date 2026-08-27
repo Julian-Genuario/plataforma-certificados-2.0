@@ -321,6 +321,20 @@ class PanelSuspiciousAttendeesTests(TestCase):
             )
         self.assertEqual(self.event.suspicious_attendees.count(), 1)
 
+    def test_reimporting_broken_row_with_uppercase_email_does_not_500(self):
+        # Caso real (Jornada Wellness 21-08): la cola guarda el email crudo
+        # ("Gorue70@gmail.com") pero el dedup compara contra el normalizado,
+        # no lo detecta como duplicado y el bulk_create viola la constraint
+        # unique_event_suspicious_email -> IntegrityError -> 500.
+        pasted = "Gloria Isabel 0rue, Gorue70@gmail.com"
+        for _ in range(2):
+            resp = self.client.post(
+                reverse("panel_attendees_import", kwargs={"event_pk": self.event.pk}),
+                {"pasted_text": pasted},
+            )
+            self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self.event.suspicious_attendees.count(), 1)
+
     def test_badge_shown_on_attendees_page_when_pending(self):
         self.SuspiciousAttendee.objects.create(event=self.event, full_name="Uno1", email="uno@mail.com", reason="x")
         resp = self.client.get(reverse("panel_attendees", kwargs={"event_pk": self.event.pk}))

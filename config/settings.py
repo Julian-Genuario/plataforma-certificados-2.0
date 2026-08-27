@@ -122,3 +122,22 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 3600
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# Sin esto, con DEBUG=False Django descarta los tracebacks de los errores 500
+# en silencio (el handler de consola por defecto filtra con require_debug_true):
+# el 500 del import del 21-08 no dejó rastro en journald. Con este config los
+# errores de request salen por stderr y gunicorn los manda al journal.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}

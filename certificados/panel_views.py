@@ -888,9 +888,14 @@ def _do_attendees_import(request, event):
             event.suspicious_attendees.all().delete()
 
         existing_emails = set(event.attendees.values_list("email_normalized", flat=True))
-        existing_suspicious_emails = set(
-            event.suspicious_attendees.values_list("email", flat=True)
-        )
+        # La cola guarda el email crudo (la constraint única es por email crudo),
+        # pero el dedup se hace por email normalizado: si acá no se normalizara,
+        # reimportar una fila sospechosa con mayúsculas ("Gorue70@gmail.com")
+        # no se detectaba como duplicada y el bulk_create tiraba IntegrityError.
+        existing_suspicious_emails = {
+            normalize_email(e)
+            for e in event.suspicious_attendees.values_list("email", flat=True)
+        }
 
         to_create = []
         to_create_suspicious = []
