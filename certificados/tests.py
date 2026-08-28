@@ -466,18 +466,34 @@ class PublicSafetyNetTests(TestCase):
         resp = self.client.get("/healthz")
         self.assertEqual(resp.status_code, 200)
 
-    def test_csrf_failure_shows_friendly_page_with_retry_link(self):
-        # Cliente con chequeo CSRF real y sin cookie: simula el iframe con
-        # cookies de terceros bloqueadas.
+    def test_download_works_without_cookies_like_safari_iframe(self):
+        # Safari/iPhone en iframe bloquea cookies de terceros: sin cookie de
+        # CSRF el POST debe funcionar igual (caso real 27-08: 4 intentos con
+        # 403 seguidos). Cliente con chequeo CSRF real y sin cookies.
+        from django.test import Client, override_settings
+        client = Client(enforce_csrf_checks=True)
+        with override_settings(MEDIA_ROOT=MEDIA):
+            CertificateTemplate.objects.create(
+                event=self.event,
+                pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+                mode="coords",
+            )
+            Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+            resp = client.post(
+                reverse("download_certificate", kwargs={"slug": self.event.slug}) + "?embed=1",
+                {"full_name": "Juan Pérez", "email": "juan@mail.com"},
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+
+    def test_csrf_failure_shows_friendly_page_on_panel_login(self):
+        # El panel conserva CSRF: sin token debe verse la página amigable,
+        # no el 403 técnico de Django.
         from django.test import Client
         client = Client(enforce_csrf_checks=True)
-        resp = client.post(
-            reverse("download_certificate", kwargs={"slug": self.event.slug}),
-            {"full_name": "Juan", "email": "a@b.com"},
-        )
+        resp = client.post(reverse("panel_login"), {"username": "x", "password": "y"})
         self.assertEqual(resp.status_code, 403)
         self.assertContains(resp, "No pudimos verificar", status_code=403)
-        self.assertContains(resp, f'href="/e/{self.event.slug}/"', status_code=403)
 
 
 class PublicUrlTests(TestCase):

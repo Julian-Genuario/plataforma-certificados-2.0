@@ -8,6 +8,7 @@ from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequ
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.clickjacking import xframe_options_exempt
+from django.views.decorators.csrf import csrf_exempt
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
@@ -330,6 +331,10 @@ def home_page(request):
     return render(request, "certificados/home.html", {"events": events})
 
 
+# csrf_exempt: el form público no tiene sesión ni login que proteger, y el
+# CSRF rompía la descarga embebida en iframe en Safari/iPhone (cookies de
+# terceros bloqueadas → 403 en cada intento; visto en producción 27-08).
+@csrf_exempt
 @xframe_options_exempt
 @public_safety_net
 def download_from_home(request):
@@ -355,6 +360,7 @@ def event_page(request, slug):
     return render(request, "certificados/event_page.html", {"event": event})
 
 
+@csrf_exempt
 @xframe_options_exempt
 @public_safety_net
 def download_certificate(request, slug):
