@@ -1,0 +1,6 @@
+[Unit]
+Description=Watchdog - reinicia la plataforma de certificados si no responde
+
+[Service]
+Type=oneshot
+ExecStart=/opt/certificados/deploy/watchdog.sh

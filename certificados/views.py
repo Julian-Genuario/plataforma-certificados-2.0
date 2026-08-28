@@ -1,8 +1,10 @@
+import logging
+from functools import wraps
 from io import BytesIO
 
 from django.contrib import messages
 from django.db.models import Q
-from django.http import FileResponse, HttpResponseBadRequest
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -27,6 +29,54 @@ DUPLICATE_MESSAGE = (
     "Verificamos que este certificado ya fue descargado. "
     "Para consultas, contactarse con contacto.brisaplus@brisasg.com.ar."
 )
+
+logger = logging.getLogger(__name__)
+
+
+def public_safety_net(view_func):
+    """Última línea de defensa de las vistas públicas.
+
+    Si algo explota de forma imprevista, el traceback completo va al log
+    (journald) y la persona vuelve al formulario con un mensaje para
+    reintentar — nunca la pantalla genérica de error. Los 404 (evento
+    inexistente/inactivo) pasan de largo: son intencionales.
+    """
+
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        try:
+            return view_func(request, *args, **kwargs)
+        except Http404:
+            raise
+        except Exception:
+            logger.exception(
+                "Error inesperado en vista pública %s", view_func.__name__
+            )
+            try:
+                # PRG solo para POST; un GET roto que redirigiera a sí mismo
+                # entraría en loop de redirects.
+                if request.method != "POST":
+                    return render(request, "errors/500.html", status=500)
+                messages.error(
+                    request,
+                    "No pudimos procesar el pedido. Volver a intentar en unos segundos.",
+                )
+                embed_qs = "?embed=1" if request.GET.get("embed") else ""
+                slug = kwargs.get("slug") or (request.POST.get("event_slug") or "").strip()
+                if slug and Event.objects.filter(slug=slug).exists():
+                    return redirect(reverse("event_page", kwargs={"slug": slug}) + embed_qs)
+                return redirect(reverse("home") + embed_qs)
+            except Exception:
+                logger.exception("El fallback de public_safety_net también falló")
+                return render(request, "errors/500.html", status=500)
+
+    return wrapper
+
+
+def healthz(request):
+    """Healthcheck para el watchdog: toca la base y responde ok."""
+    Event.objects.exists()
+    return HttpResponse("ok", content_type="text/plain")
 
 
 def _get_client_ip(request):
@@ -260,12 +310,14 @@ def server_error(request):
 
 
 @xframe_options_exempt
+@public_safety_net
 def home_page(request):
     events = Event.objects.filter(active=True).order_by("name")
     return render(request, "certificados/home.html", {"events": events})
 
 
 @xframe_options_exempt
+@public_safety_net
 def download_from_home(request):
     if request.method != "POST":
         return HttpResponseBadRequest("Método no permitido.")
@@ -283,12 +335,14 @@ def download_from_home(request):
 
 
 @xframe_options_exempt
+@public_safety_net
 def event_page(request, slug):
     event = get_object_or_404(Event, slug=slug, active=True)
     return render(request, "certificados/event_page.html", {"event": event})
 
 
 @xframe_options_exempt
+@public_safety_net
 def download_certificate(request, slug):
     if request.method != "POST":
         return HttpResponseBadRequest("Método no permitido.")

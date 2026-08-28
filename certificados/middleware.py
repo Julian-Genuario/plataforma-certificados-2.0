@@ -3,8 +3,10 @@ from django.shortcuts import render
 from .models import SiteSettings
 
 # Prefijos que NUNCA se cortan por mantenimiento: el panel para poder
-# apagarlo, el admin de Django y los archivos estáticos/media.
-_EXCLUDED_PREFIXES = ("/panel/", "/admin/", "/static/", "/media/")
+# apagarlo, el admin de Django, los archivos estáticos/media y el healthcheck
+# (si se cortara, el watchdog reiniciaría el servicio en loop durante un
+# mantenimiento manual).
+_EXCLUDED_PREFIXES = ("/panel/", "/admin/", "/static/", "/media/", "/healthz")
 
 
 class MaintenanceModeMiddleware:

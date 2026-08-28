@@ -1,0 +1,6 @@
+[Unit]
+Description=Backup diario de la plataforma de certificados
+
+[Service]
+Type=oneshot
+ExecStart=/opt/certificados/deploy/backup.sh

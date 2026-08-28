@@ -413,6 +413,60 @@ class TemplateUploadTests(TestCase):
         self.assertContains(resp, "certificado no se puede generar")
 
 
+class PublicSafetyNetTests(TestCase):
+    """Ninguna vista pública puede terminar en la pantalla genérica de error:
+    un bug imprevisto tiene que loguearse y devolver a la persona al
+    formulario con un mensaje de reintento."""
+
+    def setUp(self):
+        self.event = Event.objects.create(name="Jornada", slug="jornada", require_email=True)
+
+    def test_unexpected_error_in_download_returns_to_form_with_message(self):
+        from unittest.mock import patch
+        with patch(
+            "certificados.views._build_certificate_response",
+            side_effect=RuntimeError("boom"),
+        ):
+            resp = self.client.post(
+                reverse("download_certificate", kwargs={"slug": self.event.slug}),
+                {"full_name": "Juan", "email": "juan@mail.com"},
+                follow=True,
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Volver a intentar")
+
+    def test_unexpected_error_in_home_download_redirects_home(self):
+        from unittest.mock import patch
+        with patch(
+            "certificados.views._build_certificate_response",
+            side_effect=RuntimeError("boom"),
+        ):
+            resp = self.client.post(
+                reverse("download_from_home"),
+                {"event_slug": self.event.slug, "full_name": "Juan", "email": "a@b.com"},
+                follow=True,
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Volver a intentar")
+
+    def test_404_passes_through_untouched(self):
+        resp = self.client.get(reverse("event_page", kwargs={"slug": "no-existe"}))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_healthz_ok(self):
+        resp = self.client.get("/healthz")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.content, b"ok")
+
+    def test_healthz_bypasses_maintenance_mode(self):
+        from .models import SiteSettings
+        s = SiteSettings.load()
+        s.mantenimiento = True
+        s.save()
+        resp = self.client.get("/healthz")
+        self.assertEqual(resp.status_code, 200)
+
+
 class PublicUrlTests(TestCase):
     def test_event_page_url_has_single_e_prefix(self):
         # La URL pública que se difunde: /e/<slug>/, no /e/e/<slug>/.

@@ -9,6 +9,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("panel/", include("certificados.panel_urls")),
     path("", cert_views.home_page, name="home"),
+    path("healthz", cert_views.healthz, name="healthz"),
     path("download/", cert_views.download_from_home, name="download_from_home"),
     path("e/", include("certificados.urls")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

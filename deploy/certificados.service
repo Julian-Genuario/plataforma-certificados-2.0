@@ -11,8 +11,11 @@ EnvironmentFile=/etc/certificados.env
 # escribir el socket; se limpia solo al parar el servicio.
 RuntimeDirectory=certificados
 RuntimeDirectoryMode=0750
+# 9 workers: el VPS tiene 8 núcleos y 31GB; con 3, un pico de descargas
+# (26k inscriptos tras un mail de "bajá tu certificado") saturaba la cola
+# y nginx devolvía la página de "servicio no disponible".
 ExecStart=/opt/certificados/.venv/bin/gunicorn \
-    --workers 3 \
+    --workers 9 \
     --timeout 120 \
     --bind unix:/run/certificados/gunicorn.sock \
     config.wsgi:application

@@ -63,6 +63,22 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        # Aguante bajo concurrencia (miles de descargas simultáneas escriben
+        # DownloadLog/RejectedAttempt). Sin esto, SQLite en modo default tira
+        # "database is locked" bajo carga → pantalla de error para la gente.
+        # - WAL: lectores y escritor dejan de bloquearse entre sí
+        # - timeout/busy_timeout: esperar el lock en vez de explotar
+        # - IMMEDIATE: la transacción de escritura toma el lock al entrar
+        #   (evita el deadlock por upgrade de lock a mitad de transacción)
+        "OPTIONS": {
+            "timeout": 20,
+            "transaction_mode": "IMMEDIATE",
+            "init_command": (
+                "PRAGMA journal_mode=WAL;"
+                "PRAGMA synchronous=NORMAL;"
+                "PRAGMA busy_timeout=15000;"
+            ),
+        },
     }
 }
 
@@ -137,6 +153,12 @@ LOGGING = {
         "django.request": {
             "handlers": ["console"],
             "level": "ERROR",
+            "propagate": False,
+        },
+        # Errores atrapados por la red de contención de vistas públicas.
+        "certificados": {
+            "handlers": ["console"],
+            "level": "INFO",
             "propagate": False,
         },
     },
