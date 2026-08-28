@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ event.name }} | Certificado listo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --fondo: {{ site.color_fondo|default:"#ffffff" }};
+            --mensaje: {{ site.color_mensaje|default:"#1d4ed8" }};
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--fondo);
+            color: #1a1d23;
+            padding: 24px;
+        }
+        .card { width: 100%; max-width: 480px; }
+        .card-inner {
+            background: #fff;
+            border: 2px solid #000;
+            border-radius: 16px;
+            padding: 40px 36px;
+            text-align: center;
+        }
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            color: var(--mensaje);
+            line-height: 1.2;
+            margin-bottom: 10px;
+            letter-spacing: -0.5px;
+        }
+        .subtitle {
+            font-size: 15px;
+            color: var(--mensaje);
+            line-height: 1.5;
+            margin-bottom: 28px;
+            opacity: 0.85;
+        }
+        .download-btn {
+            display: block;
+            width: 100%;
+            padding: 16px;
+            border: 2px solid #000;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 700;
+            font-family: inherit;
+            color: #fff;
+            background: var(--mensaje);
+            text-decoration: none;
+            letter-spacing: 0.3px;
+            transition: opacity 0.15s;
+        }
+        .download-btn:hover { opacity: 0.9; }
+        .hint {
+            margin-top: 16px;
+            font-size: 13px;
+            color: #6b7280;
+            line-height: 1.5;
+        }
+        .back {
+            margin-top: 20px;
+            font-size: 13px;
+        }
+        .back a { color: var(--mensaje); font-weight: 600; }
+        @media (max-width: 520px) {
+            .card-inner { padding: 32px 24px; }
+            h1 { font-size: 22px; }
+        }
+        body.embed {
+            min-height: 0;
+            background: transparent;
+            padding: 10px 2px 0;
+            display: block;
+        }
+        body.embed .card { max-width: 100%; }
+    </style>
+</head>
+<body class="{% if request.GET.embed %}embed{% endif %}">
+
+<div class="card">
+    <div class="card-inner">
+        <h1>¡Certificado listo!</h1>
+        <div class="subtitle">{{ event.name }}</div>
+
+        <a class="download-btn" href="{{ download_url }}" target="_blank" rel="noopener">
+            Descargar el certificado
+        </a>
+
+        <div class="hint">
+            Se abre en una pestaña nueva. El link dura 1 hora y se puede
+            tocar más de una vez si la descarga no arranca.
+        </div>
+
+        <div class="back">
+            <a href="{% url 'event_page' slug=event.slug %}{% if request.GET.embed %}?embed=1{% endif %}">Volver al formulario</a>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,8 +1,11 @@
 import logging
+from datetime import timedelta
 from functools import wraps
 from io import BytesIO
 
 from django.contrib import messages
+from django.core import signing
+from django.utils import timezone
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
@@ -32,6 +35,16 @@ DUPLICATE_MESSAGE = (
 )
 
 logger = logging.getLogger(__name__)
+
+# Reintentos dentro de esta ventana re-entregan el MISMO certificado en vez de
+# bloquear por duplicado. Caso real (testeo Brisa 27-08): doble click al botón
+# manda dos POST — el primero consumía el cupo y el segundo cortaba la descarga
+# y mostraba "ya fue descargado": cupo gastado sin archivo.
+REDOWNLOAD_GRACE = timedelta(minutes=10)
+
+# Firma de los links de descarga directa (flujo embed en dos pasos).
+DOWNLOAD_TOKEN_SALT = "descarga-certificado"
+DOWNLOAD_TOKEN_MAX_AGE = 3600  # 1 hora
 
 
 def public_safety_net(view_func):
@@ -243,6 +256,7 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
         return redirect(reverse("event_page", kwargs={"slug": event.slug}) + embed_qs)
 
     matched_attendee = None
+    regrace = False
 
     if not manual:
         has_attendees = event.attendees.exists()
@@ -275,17 +289,19 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
                 identity |= Q(email_normalized=matched_attendee.email_normalized)
             else:
                 identity |= Q(name_normalized=matched_attendee.full_name_normalized)
-            prior_count = prior.filter(identity).count()
+            prior_matches = prior.filter(identity)
         elif email:
-            prior_count = prior.filter(
-                email_normalized=normalize_email(email)
-            ).count()
+            prior_matches = prior.filter(email_normalized=normalize_email(email))
         else:
-            prior_count = prior.filter(
-                name_normalized=normalize_text(full_name)
-            ).count()
-        if event.download_limit and prior_count >= event.download_limit:
-            return _fail(event.duplicate_message or DUPLICATE_MESSAGE, "duplicate")
+            prior_matches = prior.filter(name_normalized=normalize_text(full_name))
+        if event.download_limit and prior_matches.count() >= event.download_limit:
+            last = prior_matches.order_by("-created_at").first()
+            if last and timezone.now() - last.created_at <= REDOWNLOAD_GRACE:
+                # Doble click o reintento inmediato: re-entregar el mismo
+                # certificado sin sumar un log nuevo, en vez de bloquear.
+                regrace = True
+            else:
+                return _fail(event.duplicate_message or DUPLICATE_MESSAGE, "duplicate")
 
     template = get_object_or_404(CertificateTemplate, event=event)
 
@@ -303,17 +319,35 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
         return _fail(msg, "template_error")
 
     # Se registra la descarga recién acá: si la generación falla, el intento
-    # no debe consumir el límite de descargas de la persona.
-    DownloadLog.objects.create(
-        event=event,
-        name_entered=full_name,
-        name_normalized=normalize_text(full_name),
-        email_normalized=normalize_email(email),
-        attendee=matched_attendee,
-        ip=_get_client_ip(request),
-        user_agent=request.META.get("HTTP_USER_AGENT", ""),
-        manual=manual,
-    )
+    # no debe consumir el límite de descargas de la persona. Un reintento
+    # dentro de la ventana de gracia tampoco suma log.
+    if not regrace:
+        DownloadLog.objects.create(
+            event=event,
+            name_entered=full_name,
+            name_normalized=normalize_text(full_name),
+            email_normalized=normalize_email(email),
+            attendee=matched_attendee,
+            ip=_get_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            manual=manual,
+        )
+
+    if not manual and request.GET.get("embed"):
+        # Dentro de un iframe, Safari (iPhone) bloquea la descarga adjunta
+        # cross-origin: la respuesta llega y no pasa nada (visto en el testeo
+        # de Brisa, 27-08). En embed se responde una pantalla intermedia con
+        # un link firmado que abre la descarga en pestaña propia.
+        token = signing.dumps(
+            {"e": event.pk, "n": full_name}, salt=DOWNLOAD_TOKEN_SALT
+        )
+        download_url = request.build_absolute_uri(
+            reverse("download_token", kwargs={"slug": event.slug, "token": token})
+        )
+        return render(request, "certificados/download_ready.html", {
+            "event": event,
+            "download_url": download_url,
+        })
 
     filename = f"certificado-{event.slug}.pdf"
     return FileResponse(BytesIO(pdf_bytes), as_attachment=True, filename=filename)
@@ -358,6 +392,33 @@ def download_from_home(request):
 def event_page(request, slug):
     event = get_object_or_404(Event, slug=slug, active=True)
     return render(request, "certificados/event_page.html", {"event": event})
+
+
+@xframe_options_exempt
+@public_safety_net
+def download_token(request, slug, token):
+    """Descarga directa con link firmado (paso 2 del flujo embed).
+
+    El POST del iframe ya validó identidad y registró la descarga; este GET
+    solo re-genera el PDF. El token vence a la hora y no suma logs, así que
+    tocarlo varias veces no gasta el cupo de nadie.
+    """
+    event = get_object_or_404(Event, slug=slug, active=True)
+    try:
+        data = signing.loads(
+            token, salt=DOWNLOAD_TOKEN_SALT, max_age=DOWNLOAD_TOKEN_MAX_AGE
+        )
+    except signing.BadSignature:
+        messages.error(
+            request, "El link de descarga venció. Completar el formulario de nuevo."
+        )
+        return redirect(reverse("event_page", kwargs={"slug": event.slug}))
+    if data.get("e") != event.pk:
+        raise Http404
+    template = get_object_or_404(CertificateTemplate, event=event)
+    pdf_bytes = build_pdf_bytes(template, data.get("n") or "")
+    filename = f"certificado-{event.slug}.pdf"
+    return FileResponse(BytesIO(pdf_bytes), as_attachment=True, filename=filename)
 
 
 @csrf_exempt

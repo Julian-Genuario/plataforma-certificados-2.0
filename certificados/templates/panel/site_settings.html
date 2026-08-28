@@ -62,9 +62,8 @@
     <div class="card-header">
         <div class="card-title">Embeber el inicio en otra web</div>
     </div>
-    <p class="form-help" style="margin-bottom:12px;">Copiá este código para mostrar la página de inicio (con el selector de evento) dentro de otra web. Incluye un link directo debajo del iframe como respaldo para navegadores que bloquean cookies de terceros (Safari, modo incógnito).</p>
-    <textarea id="homeEmbedCode" readonly rows="5" style="font-family:monospace;font-size:12px;" onclick="this.select();">&lt;iframe src="{{ home_embed_url }}" width="480" height="760" style="border:0;max-width:100%;" title="Descargar certificado"&gt;&lt;/iframe&gt;
-&lt;p&gt;¿Problemas con el formulario? &lt;a href="{{ home_public_url }}" target="_blank" rel="noopener"&gt;Descargar el certificado desde este link&lt;/a&gt;.&lt;/p&gt;</textarea>
+    <p class="form-help" style="margin-bottom:12px;">Copiá este código para mostrar la página de inicio (con el selector de evento) dentro de otra web. La descarga se abre en una pestaña propia, así funciona también en Safari/iPhone con cookies bloqueadas.</p>
+    <textarea id="homeEmbedCode" readonly rows="3" style="font-family:monospace;font-size:12px;" onclick="this.select();">&lt;iframe src="{{ home_embed_url }}" width="480" height="760" style="border:0;max-width:100%;" title="Descargar certificado"&gt;&lt;/iframe&gt;</textarea>
     <button type="button" class="btn btn-secondary btn-sm" style="margin-top:12px;" onclick="copyEmbed('homeEmbedCode', this)">Copiar código</button>
 </div>
 

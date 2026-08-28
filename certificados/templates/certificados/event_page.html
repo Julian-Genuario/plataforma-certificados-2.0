@@ -150,11 +150,19 @@
             h1 { font-size: 24px; }
         }
 
-        /* Modo embed (?embed=1): pensado para vivir dentro de un iframe */
+        /* Botón deshabilitado mientras se genera (freno anti doble click) */
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        /* Modo embed (?embed=1): pensado para vivir dentro de un iframe.
+           El padding superior evita que el recuadro quede pegado al borde
+           (pedido del testeo Brisa 27-08). */
         body.embed {
             min-height: 0;
             background: transparent;
-            padding: 0;
+            padding: 10px 2px 0;
             display: block;
         }
         body.embed .card { max-width: 100%; }
@@ -181,7 +189,8 @@
             {% endfor %}
         {% endif %}
 
-        <form method="post" action="{% url 'download_certificate' slug=event.slug %}{% if request.GET.embed %}?embed=1{% endif %}">
+        <form method="post" action="{% url 'download_certificate' slug=event.slug %}{% if request.GET.embed %}?embed=1{% endif %}"
+              onsubmit="var b=this.querySelector('.submit-btn');setTimeout(function(){b.disabled=true;b.textContent='Generando…';},0);setTimeout(function(){b.disabled=false;b.textContent='Descargar certificado';},6000);">
             {% csrf_token %}
 
             <div class="form-group">

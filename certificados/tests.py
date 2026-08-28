@@ -27,6 +27,14 @@ def _make_pdf_bytes():
 MEDIA = tempfile.mkdtemp()
 
 
+def _age_logs(minutes=30):
+    """Retro-data todos los DownloadLog para salir de la ventana de gracia
+    de re-descarga (REDOWNLOAD_GRACE) y probar el bloqueo por duplicado."""
+    from django.utils import timezone
+    from datetime import timedelta
+    DownloadLog.objects.update(created_at=timezone.now() - timedelta(minutes=minutes))
+
+
 @override_settings(MEDIA_ROOT=MEDIA)
 class DownloadFlowTests(TestCase):
     @classmethod
@@ -54,6 +62,7 @@ class DownloadFlowTests(TestCase):
 
     def test_duplicate_download_blocked(self):
         self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"})
+        _age_logs()
         resp = self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"})
         self.assertEqual(resp.status_code, 302)  # redirect con mensaje de error
         self.assertEqual(DownloadLog.objects.count(), 1)  # no se registra segunda descarga
@@ -71,6 +80,7 @@ class DownloadFlowTests(TestCase):
         # La descarga previa tiene que seguir bloqueada.
         self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"})
         self.assertEqual(DownloadLog.objects.count(), 1)
+        _age_logs()
 
         self.event.attendees.all().delete()
         Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
@@ -86,6 +96,7 @@ class DownloadFlowTests(TestCase):
         self.event.save()
         self.client.post(self.url, {"full_name": "Juan Pérez"})
         self.assertEqual(DownloadLog.objects.count(), 1)
+        _age_logs()
 
         self.event.attendees.all().delete()
         Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
@@ -483,8 +494,9 @@ class PublicSafetyNetTests(TestCase):
                 reverse("download_certificate", kwargs={"slug": self.event.slug}) + "?embed=1",
                 {"full_name": "Juan Pérez", "email": "juan@mail.com"},
             )
+        # En embed la respuesta es la pantalla intermedia con el link firmado.
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertContains(resp, "Certificado listo")
 
     def test_csrf_failure_shows_friendly_page_on_panel_login(self):
         # El panel conserva CSRF: sin token debe verse la página amigable,
@@ -494,6 +506,72 @@ class PublicSafetyNetTests(TestCase):
         resp = client.post(reverse("panel_login"), {"username": "x", "password": "y"})
         self.assertEqual(resp.status_code, 403)
         self.assertContains(resp, "No pudimos verificar", status_code=403)
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class RedownloadGraceAndEmbedFlowTests(TestCase):
+    """Casos del testeo de Brisa (27-08): doble click quemaba el cupo sin
+    entregar archivo, y Safari en iframe no descargaba nada."""
+
+    def setUp(self):
+        self.event = Event.objects.create(
+            name="Congreso", slug="congreso", require_email=True, download_limit=1
+        )
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        self.url = reverse("download_certificate", kwargs={"slug": self.event.slug})
+        self.datos = {"full_name": "Juan Pérez", "email": "juan@mail.com"}
+
+    def test_double_click_serves_pdf_twice_and_logs_once(self):
+        r1 = self.client.post(self.url, self.datos)
+        r2 = self.client.post(self.url, self.datos)
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r2["Content-Type"], "application/pdf")
+        self.assertEqual(DownloadLog.objects.filter(event=self.event).count(), 1)
+
+    def test_after_grace_window_duplicate_blocks_again(self):
+        self.client.post(self.url, self.datos)
+        log = DownloadLog.objects.get(event=self.event)
+        from django.utils import timezone
+        from datetime import timedelta
+        DownloadLog.objects.filter(pk=log.pk).update(
+            created_at=timezone.now() - timedelta(minutes=30)
+        )
+        resp = self.client.post(self.url, self.datos, follow=True)
+        self.assertContains(resp, "ya fue descargado")
+
+    def test_embed_post_returns_ready_page_with_signed_link(self):
+        resp = self.client.post(self.url + "?embed=1", self.datos)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Certificado listo")
+        self.assertContains(resp, "/descargar/")
+        # El link firmado de la página baja el PDF de verdad.
+        import re
+        m = re.search(r'href="[^"]*(/e/congreso/descargar/[^"]+/)"', resp.content.decode())
+        self.assertIsNotNone(m)
+        pdf_resp = self.client.get(m.group(1))
+        self.assertEqual(pdf_resp.status_code, 200)
+        self.assertEqual(pdf_resp["Content-Type"], "application/pdf")
+        # Tocar el link de nuevo no suma logs ni bloquea.
+        self.client.get(m.group(1))
+        self.assertEqual(DownloadLog.objects.filter(event=self.event).count(), 1)
+
+    def test_tampered_token_redirects_with_message(self):
+        resp = self.client.get(
+            reverse("download_token", kwargs={"slug": self.event.slug, "token": "basura:invalida"}),
+            follow=True,
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "venció")
+
+    def test_direct_non_embed_download_still_immediate(self):
+        resp = self.client.post(self.url, self.datos)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
 
 
 class PublicUrlTests(TestCase):
@@ -586,6 +664,7 @@ class DownloadLimitTests(TestCase):
         self.event.save()
         self.assertEqual(self._download().status_code, 200)
         self.assertEqual(self._download().status_code, 200)
+        _age_logs()
         resp = self._download()
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(DownloadLog.objects.count(), 2)
@@ -612,6 +691,7 @@ class DownloadLimitTests(TestCase):
         self.event.duplicate_message = "Ya retiraste tu certificado, capo."
         self.event.save()
         self._download()  # consume el cupo (límite default 1)
+        _age_logs()
         follow = self.client.post(
             self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"}, follow=True
         )
@@ -620,6 +700,7 @@ class DownloadLimitTests(TestCase):
     def test_default_message_when_empty(self):
         self.assertEqual(self.event.duplicate_message, "")
         self._download()
+        _age_logs()
         follow = self.client.post(
             self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"}, follow=True
         )

@@ -84,9 +84,8 @@
     <div class="card-header">
         <div class="card-title">Embeber en otra web</div>
     </div>
-    <p class="form-help" style="margin-bottom:12px;">Copiá este código y pegalo en el HTML de tu página para mostrar el formulario de descarga de este evento. Incluye un link directo debajo del iframe como respaldo para navegadores que bloquean cookies de terceros (Safari, modo incógnito).</p>
-    <textarea id="embedCode" readonly rows="5" style="font-family:monospace;font-size:12px;" onclick="this.select();">&lt;iframe src="{{ embed_url }}" width="480" height="760" style="border:0;max-width:100%;" title="Descargar certificado"&gt;&lt;/iframe&gt;
-&lt;p&gt;¿Problemas con el formulario? &lt;a href="{{ public_url }}" target="_blank" rel="noopener"&gt;Descargar el certificado desde este link&lt;/a&gt;.&lt;/p&gt;</textarea>
+    <p class="form-help" style="margin-bottom:12px;">Copiá este código y pegalo en el HTML de tu página para mostrar el formulario de descarga de este evento. La descarga se abre en una pestaña propia, así funciona también en Safari/iPhone con cookies bloqueadas.</p>
+    <textarea id="embedCode" readonly rows="3" style="font-family:monospace;font-size:12px;" onclick="this.select();">&lt;iframe src="{{ embed_url }}" width="480" height="760" style="border:0;max-width:100%;" title="Descargar certificado"&gt;&lt;/iframe&gt;</textarea>
     <button type="button" class="btn btn-secondary btn-sm" style="margin-top:12px;" onclick="copyEmbed('embedCode', this)">Copiar código</button>
 </div>
 {% endif %}
