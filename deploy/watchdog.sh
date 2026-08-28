@@ -4,11 +4,13 @@
 # El healthcheck toca la base, así que también detecta una DB colgada.
 set -u
 
-URL="http://127.0.0.1/healthz"
+# HTTPS resolviendo al propio nginx local: por HTTP puro nginx contesta 301
+# (redirect a https) y el watchdog reiniciaba en falso una vez por minuto.
 HOST="srv1812254.hstgr.cloud"
 
 check() {
-    curl -s -o /dev/null -w '%{http_code}' -m 10 -H "Host: $HOST" "$URL" 2>/dev/null
+    curl -s -o /dev/null -w '%{http_code}' -m 10 \
+        --resolve "$HOST:443:127.0.0.1" "https://$HOST/healthz" 2>/dev/null
 }
 
 code=$(check)
