@@ -79,6 +79,20 @@ def healthz(request):
     return HttpResponse("ok", content_type="text/plain")
 
 
+def csrf_failure(request, reason=""):
+    """CSRF_FAILURE_VIEW: página amigable en lugar del 403 técnico de Django.
+
+    Pasa sobre todo con el form embebido en iframe cuando el navegador
+    bloquea cookies de terceros (Safari/incógnito), o con la página abierta
+    de un día para otro. No usa messages (sin cookies no sobreviven a un
+    redirect): rinde directo con link para reabrir el formulario.
+    """
+    retry_url = request.path if request.path != reverse("download_from_home") else reverse("home")
+    if request.path.endswith("/download/") and request.path.startswith("/e/"):
+        retry_url = request.path[: -len("download/")]
+    return render(request, "errors/csrf.html", {"retry_url": retry_url}, status=403)
+
+
 def _get_client_ip(request):
     return request.META.get("REMOTE_ADDR")
 

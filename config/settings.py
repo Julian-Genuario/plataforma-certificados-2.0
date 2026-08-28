@@ -117,6 +117,9 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 # CSRF
+# Fallo de CSRF (cookies bloqueadas en iframe, sesión vieja) → página amigable
+# con link para reabrir el formulario, no el 403 técnico de Django.
+CSRF_FAILURE_VIEW = "certificados.views.csrf_failure"
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")

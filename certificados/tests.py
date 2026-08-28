@@ -466,6 +466,19 @@ class PublicSafetyNetTests(TestCase):
         resp = self.client.get("/healthz")
         self.assertEqual(resp.status_code, 200)
 
+    def test_csrf_failure_shows_friendly_page_with_retry_link(self):
+        # Cliente con chequeo CSRF real y sin cookie: simula el iframe con
+        # cookies de terceros bloqueadas.
+        from django.test import Client
+        client = Client(enforce_csrf_checks=True)
+        resp = client.post(
+            reverse("download_certificate", kwargs={"slug": self.event.slug}),
+            {"full_name": "Juan", "email": "a@b.com"},
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertContains(resp, "No pudimos verificar", status_code=403)
+        self.assertContains(resp, f'href="/e/{self.event.slug}/"', status_code=403)
+
 
 class PublicUrlTests(TestCase):
     def test_event_page_url_has_single_e_prefix(self):

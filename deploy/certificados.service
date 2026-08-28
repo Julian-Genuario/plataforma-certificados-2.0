@@ -14,9 +14,14 @@ RuntimeDirectoryMode=0750
 # 9 workers: el VPS tiene 8 núcleos y 31GB; con 3, un pico de descargas
 # (26k inscriptos tras un mail de "bajá tu certificado") saturaba la cola
 # y nginx devolvía la página de "servicio no disponible".
+# max-requests: cada worker se recicla solo tras ~500 requests (con jitter
+# para no reciclarse todos juntos) — seguro contra fugas de memoria lentas
+# en corridas de semanas. El reciclado es gradual, sin corte de servicio.
 ExecStart=/opt/certificados/.venv/bin/gunicorn \
     --workers 9 \
     --timeout 120 \
+    --max-requests 500 \
+    --max-requests-jitter 100 \
     --bind unix:/run/certificados/gunicorn.sock \
     config.wsgi:application
 Restart=on-failure
