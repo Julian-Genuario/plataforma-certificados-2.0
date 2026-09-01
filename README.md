@@ -83,6 +83,7 @@ Notas:
   algo del repo, borrarlo a mano en el VPS.
 - Si se tocó un `.service`/`.timer` de `deploy/`, copiarlo a
   `/etc/systemd/system/` y hacer `systemctl daemon-reload` antes del restart.
-- Verificación rápida post-deploy: `systemctl is-active certificados` y
-  `journalctl -u certificados-watchdog -n 3` (tiene que decir *Finished*, no
-  *203/EXEC*).
+- **Verificación obligatoria** post-deploy (y al inicio/fin de cada sesión):
+  `ssh ... /opt/certificados/deploy/verificar.sh` → tiene que terminar en
+  `RESULTADO: PASS`. Chequea servicios, health, watchdog, edad del backup,
+  scripts, SSL, disco, memoria, integridad de la DB y tracebacks recientes.
