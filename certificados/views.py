@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 
+import pymupdf
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
@@ -344,9 +345,14 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
         download_url = request.build_absolute_uri(
             reverse("download_token", kwargs={"slug": event.slug, "token": token})
         )
+        image_url = request.build_absolute_uri(
+            reverse("download_image_token", kwargs={"slug": event.slug, "token": token})
+        )
         return render(request, "certificados/download_ready.html", {
             "event": event,
             "download_url": download_url,
+            "image_url": image_url,
+            "full_name": full_name,
         })
 
     filename = f"certificado-{event.slug}.pdf"
@@ -394,6 +400,37 @@ def event_page(request, slug):
     return render(request, "certificados/event_page.html", {"event": event})
 
 
+def _load_signed_download(request, event, token):
+    """Valida el token firmado del flujo embed.
+
+    Devuelve (data, None) si es válido, o (None, redirect) si venció o fue
+    manipulado — en ese caso la persona vuelve al formulario con aviso.
+    """
+    try:
+        data = signing.loads(
+            token, salt=DOWNLOAD_TOKEN_SALT, max_age=DOWNLOAD_TOKEN_MAX_AGE
+        )
+    except signing.BadSignature:
+        messages.error(
+            request, "El link de descarga venció. Completar el formulario de nuevo."
+        )
+        return None, redirect(reverse("event_page", kwargs={"slug": event.slug}))
+    if data.get("e") != event.pk:
+        raise Http404
+    return data, None
+
+
+def render_pdf_jpeg(pdf_bytes, dpi=120, quality=85):
+    """Primera página del PDF como JPEG (para ver/guardar el certificado
+    como imagen en el celular)."""
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        pix = doc[0].get_pixmap(dpi=dpi, alpha=False)
+        return pix.tobytes("jpeg", jpg_quality=quality)
+    finally:
+        doc.close()
+
+
 @xframe_options_exempt
 @public_safety_net
 def download_token(request, slug, token):
@@ -404,21 +441,31 @@ def download_token(request, slug, token):
     tocarlo varias veces no gasta el cupo de nadie.
     """
     event = get_object_or_404(Event, slug=slug, active=True)
-    try:
-        data = signing.loads(
-            token, salt=DOWNLOAD_TOKEN_SALT, max_age=DOWNLOAD_TOKEN_MAX_AGE
-        )
-    except signing.BadSignature:
-        messages.error(
-            request, "El link de descarga venció. Completar el formulario de nuevo."
-        )
-        return redirect(reverse("event_page", kwargs={"slug": event.slug}))
-    if data.get("e") != event.pk:
-        raise Http404
+    data, bounce = _load_signed_download(request, event, token)
+    if bounce:
+        return bounce
     template = get_object_or_404(CertificateTemplate, event=event)
     pdf_bytes = build_pdf_bytes(template, data.get("n") or "")
     filename = f"certificado-{event.slug}.pdf"
     return FileResponse(BytesIO(pdf_bytes), as_attachment=True, filename=filename)
+
+
+@xframe_options_exempt
+@public_safety_net
+def download_image_token(request, slug, token):
+    """El mismo certificado como imagen JPEG (vista previa + guardar en
+    Fotos desde el celular). Mismo token que la descarga; no suma logs."""
+    event = get_object_or_404(Event, slug=slug, active=True)
+    data, bounce = _load_signed_download(request, event, token)
+    if bounce:
+        return bounce
+    template = get_object_or_404(CertificateTemplate, event=event)
+    pdf_bytes = build_pdf_bytes(template, data.get("n") or "")
+    jpeg = render_pdf_jpeg(pdf_bytes)
+    resp = HttpResponse(jpeg, content_type="image/jpeg")
+    resp["Content-Disposition"] = f'inline; filename="certificado-{event.slug}.jpg"'
+    resp["Cache-Control"] = "private, max-age=3600"
+    return resp
 
 
 @csrf_exempt

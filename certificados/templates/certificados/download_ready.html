@@ -61,6 +61,31 @@
             transition: opacity 0.15s;
         }
         .download-btn:hover { opacity: 0.9; }
+        .preview {
+            display: block;
+            width: 100%;
+            height: auto;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            margin: 6px 0 18px;
+            background: #f9fafb;
+            min-height: 120px;
+        }
+        .btn-secondary {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 12px 22px;
+            border: 2px solid #1a1d23;
+            border-radius: 8px;
+            color: #1a1d23;
+            background: #fff;
+            font-weight: 700;
+            font-size: 16px;
+            text-decoration: none;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .btn-secondary[hidden] { display: none; }
         .hint + .hint { margin-top: 10px; }
         .hint {
             margin-top: 16px;
@@ -93,20 +118,33 @@
         <h1>¡Certificado listo!</h1>
         <div class="subtitle">{{ event.name }}</div>
 
-        <a class="download-btn" href="{{ download_url }}" target="_blank" rel="noopener" download="certificado-{{ event.slug }}.pdf">
-            Descargar el certificado
-        </a>
+        <img class="preview" src="{{ image_url }}" alt="Certificado de {{ full_name }}">
 
-        <div class="hint">
-            <strong>En iPhone o iPad:</strong> Safari pregunta si querés
-            descargar el archivo &rarr; tocar <strong>Descargar</strong>. Queda
-            en la app <strong>Archivos &rarr; Descargas</strong>. Si en cambio
-            el PDF se abre en pantalla, tocar el ícono de compartir
-            (cuadrado con flecha) y elegir <strong>Guardar en Archivos</strong>.
+        <a class="download-btn" href="{{ download_url }}" target="_blank" rel="noopener" download="certificado-{{ event.slug }}.pdf">
+            Descargar el certificado (PDF)
+        </a>
+        <br>
+        <button type="button" class="btn-secondary" id="share-btn"
+                data-pdf="{{ download_url }}" data-name="certificado-{{ event.slug }}.pdf"
+                data-title="Certificado - {{ event.name }}">
+            Guardar en el teléfono
+        </button>
+
+        <div class="hint" id="hint-share" hidden>
+            <strong>Guardar en el teléfono</strong> abre el menú de tu celular:
+            ahí podés elegir <strong>Guardar en Archivos</strong>, enviarlo por
+            WhatsApp o por correo.
         </div>
         <div class="hint">
-            <strong>En Android o computadora:</strong> se guarda en la carpeta
-            de descargas del navegador.
+            <strong>Para tenerlo como foto:</strong> mantener presionada la
+            imagen de arriba y elegir <strong>Guardar imagen</strong>.
+        </div>
+        <div class="hint">
+            <strong>En iPhone o iPad</strong>, si al descargar aparece
+            "¿Querés descargar…?", tocar <strong>Descargar</strong>: queda en
+            la app <strong>Archivos &rarr; Descargas</strong>. Si el PDF se abre
+            en pantalla, tocar compartir (cuadrado con flecha) &rarr;
+            <strong>Guardar en Archivos</strong>.
         </div>
         <div class="hint">
             El link dura 1 hora y se puede tocar más de una vez.
@@ -117,6 +155,60 @@
         </div>
     </div>
 </div>
+
+<script>
+(function () {
+    var btn = document.getElementById('share-btn');
+    var hint = document.getElementById('hint-share');
+    if (!btn) return;
+    var probe;
+    try { probe = new File(['x'], 'x.pdf', { type: 'application/pdf' }); } catch (e) {}
+    var canShareFiles = !!(probe && navigator.share && navigator.canShare &&
+                           navigator.canShare({ files: [probe] }));
+    if (!canShareFiles) { btn.hidden = true; return; }
+    hint.hidden = false;
+
+    // El PDF se baja de antemano: así share() se llama en el mismo toque
+    // (Safari exige que sea dentro del gesto del usuario).
+    var file = null, loading = null;
+    function load() {
+        if (file) return Promise.resolve(file);
+        if (!loading) {
+            loading = fetch(btn.dataset.pdf, { credentials: 'omit' })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); })
+                .then(function (b) {
+                    file = new File([b], btn.dataset.name, { type: 'application/pdf' });
+                    return file;
+                })
+                .catch(function () { loading = null; return null; });
+        }
+        return loading;
+    }
+    load();
+
+    btn.addEventListener('click', function () {
+        if (file) {
+            navigator.share({ files: [file], title: btn.dataset.title })
+                .catch(function () { /* la persona canceló: nada que hacer */ });
+            return;
+        }
+        var original = btn.textContent;
+        btn.textContent = 'Preparando…';
+        btn.disabled = true;
+        load().then(function (f) {
+            btn.textContent = original;
+            btn.disabled = false;
+            if (f) {
+                navigator.share({ files: [f], title: btn.dataset.title })
+                    .catch(function () {});
+            } else {
+                // Sin blob (red rara): abrir la descarga normal.
+                window.open(btn.dataset.pdf, '_blank');
+            }
+        });
+    });
+})();
+</script>
 
 </body>
 </html>

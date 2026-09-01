@@ -561,6 +561,33 @@ class RedownloadGraceAndEmbedFlowTests(TestCase):
         self.client.get(m.group(1))
         self.assertEqual(DownloadLog.objects.filter(event=self.event).count(), 1)
 
+    def test_embed_ready_page_has_image_preview_and_share_button(self):
+        resp = self.client.post(self.url + "?embed=1", self.datos)
+        self.assertContains(resp, "/imagen/")
+        self.assertContains(resp, "Guardar en el teléfono")
+        self.assertContains(resp, 'id="share-btn"')
+
+    def test_image_token_returns_jpeg_without_logging(self):
+        resp = self.client.post(self.url + "?embed=1", self.datos)
+        import re
+        m = re.search(r'src="[^"]*(/e/congreso/imagen/[^"]+/)"', resp.content.decode())
+        self.assertIsNotNone(m)
+        img = self.client.get(m.group(1))
+        self.assertEqual(img.status_code, 200)
+        self.assertEqual(img["Content-Type"], "image/jpeg")
+        self.assertEqual(img.content[:2], bytes([0xFF, 0xD8]))  # magic JPEG
+        self.assertGreater(len(img.content), 1000)
+        self.client.get(m.group(1))
+        self.assertEqual(DownloadLog.objects.filter(event=self.event).count(), 1)
+
+    def test_tampered_image_token_redirects_with_message(self):
+        resp = self.client.get(
+            reverse("download_image_token", kwargs={"slug": self.event.slug, "token": "basura:invalida"}),
+            follow=True,
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "venció")
+
     def test_tampered_token_redirects_with_message(self):
         resp = self.client.get(
             reverse("download_token", kwargs={"slug": self.event.slug, "token": "basura:invalida"}),
