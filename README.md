@@ -61,3 +61,28 @@ python manage.py test
 ---
 
 Hecho por [Julian Genuario](https://github.com/Julian-Genuario).
+
+## Deploy en el VPS (Hostinger)
+
+La app corre en `/opt/certificados` (user `certif`, Gunicorn + Nginx, SQLite en WAL).
+Para subir una versión nueva desde esta PC:
+
+```bash
+git archive HEAD | ssh -i ~/.ssh/hostinger_cert_vps root@179.197.65.129 \
+  'tar -x -C /opt/certificados && chown -R certif:certif /opt/certificados \
+   && chmod +x /opt/certificados/deploy/*.sh \
+   && sudo -u certif /opt/certificados/.venv/bin/python /opt/certificados/manage.py migrate --noinput \
+   && systemctl restart certificados'
+```
+
+Notas:
+- `.gitattributes` fuerza LF en scripts/units y el índice guarda los `.sh` como
+  755, así el archive sale listo para Linux. Igual el `chmod +x` de arriba es
+  red de contención.
+- `tar -x` no borra archivos que ya no existen en git: si se elimina o renombra
+  algo del repo, borrarlo a mano en el VPS.
+- Si se tocó un `.service`/`.timer` de `deploy/`, copiarlo a
+  `/etc/systemd/system/` y hacer `systemctl daemon-reload` antes del restart.
+- Verificación rápida post-deploy: `systemctl is-active certificados` y
+  `journalctl -u certificados-watchdog -n 3` (tiene que decir *Finished*, no
+  *203/EXEC*).

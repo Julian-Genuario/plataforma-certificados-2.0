@@ -1,0 +1,19 @@
+# Normalizacion de fin de linea.
+# El repo se edita en Windows (core.autocrlf=true) pero se deploya a Linux con
+# `git archive` -> tar. Sin esto, los scripts salen con CRLF y systemd los
+# rechaza con 203/EXEC (paso el 28-08-2026: watchdog y backup muertos 4 dias).
+* text=auto
+*.sh      text eol=lf
+*.service text eol=lf
+*.timer   text eol=lf
+*.conf    text eol=lf
+*.py      text eol=lf
+*.html    text eol=lf
+*.css     text eol=lf
+*.js      text eol=lf
+*.env     text eol=lf
+*.pdf     binary
+*.png     binary
+*.jpg     binary
+*.ttf     binary
+*.sqlite3 binary
