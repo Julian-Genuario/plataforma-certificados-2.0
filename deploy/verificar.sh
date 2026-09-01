@@ -20,6 +20,17 @@ code=$(curl -s -o /dev/null -m 10 -w "%{http_code}" --resolve "$HOST:443:127.0.0
 [ "$code" = 200 ] && ok "/healthz 200" || bad "/healthz devolvio $code"
 code=$(curl -s -o /dev/null -m 10 -w "%{http_code}" --resolve "$HOST:443:127.0.0.1" "https://$HOST/e/congreso-test/")
 [ "$code" = 200 ] && ok "pagina del evento 200" || bad "pagina del evento devolvio $code"
+# 2b. por IPv6 e IPv4 PUBLICAS (el DNS publica AAAA: si nginx no escucha en
+#     IPv6, los iPhones en redes v6 ven el iframe en blanco y no dejan log —
+#     paso el 01-09-2026). Se resuelve contra 1.1.1.1 porque /etc/hosts del
+#     VPS mapea el nombre a 127.0.1.1.
+for v in AAAA A; do
+  ip=$(dig +short "$v" "$HOST" @1.1.1.1 2>/dev/null | tail -1)
+  if [ -z "$ip" ]; then bad "DNS publico sin registro $v para $HOST"; continue; fi
+  [ "$v" = AAAA ] && r="[$ip]" || r="$ip"
+  code=$(curl -s -o /dev/null -m 10 -w "%{http_code}" --resolve "$HOST:443:$r" "https://$HOST/healthz")
+  [ "$code" = 200 ] && ok "/healthz via $v $ip -> 200" || bad "/healthz via $v $ip -> $code"
+done
 
 # 3. watchdog: su ultima corrida tiene que haber terminado bien
 res=$(systemctl show certificados-watchdog.service -p Result --value)
