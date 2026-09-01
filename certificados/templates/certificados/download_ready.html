@@ -61,6 +61,7 @@
             transition: opacity 0.15s;
         }
         .download-btn:hover { opacity: 0.9; }
+        .hint + .hint { margin-top: 10px; }
         .hint {
             margin-top: 16px;
             font-size: 13px;
@@ -92,13 +93,23 @@
         <h1>¡Certificado listo!</h1>
         <div class="subtitle">{{ event.name }}</div>
 
-        <a class="download-btn" href="{{ download_url }}" target="_blank" rel="noopener">
+        <a class="download-btn" href="{{ download_url }}" target="_blank" rel="noopener" download="certificado-{{ event.slug }}.pdf">
             Descargar el certificado
         </a>
 
         <div class="hint">
-            Se abre en una pestaña nueva. El link dura 1 hora y se puede
-            tocar más de una vez si la descarga no arranca.
+            <strong>En iPhone o iPad:</strong> Safari pregunta si querés
+            descargar el archivo &rarr; tocar <strong>Descargar</strong>. Queda
+            en la app <strong>Archivos &rarr; Descargas</strong>. Si en cambio
+            el PDF se abre en pantalla, tocar el ícono de compartir
+            (cuadrado con flecha) y elegir <strong>Guardar en Archivos</strong>.
+        </div>
+        <div class="hint">
+            <strong>En Android o computadora:</strong> se guarda en la carpeta
+            de descargas del navegador.
+        </div>
+        <div class="hint">
+            El link dura 1 hora y se puede tocar más de una vez.
         </div>
 
         <div class="back">
