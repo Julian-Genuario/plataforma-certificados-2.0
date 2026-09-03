@@ -4,6 +4,9 @@
 {% block page_title %}Dashboard{% endblock %}
 {% block topbar_actions %}
 <a href="{% url 'panel_report_pdf' %}" class="btn btn-secondary btn-sm">Exportar informe</a>
+{% if user.is_superuser %}
+<button type="button" class="btn btn-danger btn-sm" onclick="openResetModal()">Reiniciar estadisticas</button>
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -74,6 +77,34 @@
         </table>
     </div>
 </div>
+{% if user.is_superuser %}
+<div class="modal-overlay" id="resetStatsModal">
+    <div class="modal">
+        <h3>Reiniciar estadisticas</h3>
+        <p>
+            Se van a borrar <strong>{{ total_downloads }} descarga{{ total_downloads|pluralize:"s" }}</strong>
+            y <strong>{{ rejected_total }} intento{{ rejected_total|pluralize:"s" }} rechazado{{ rejected_total|pluralize:"s" }}</strong>
+            de todos los eventos. El dashboard y el listado de descargas quedan en cero.
+        </p>
+        <p style="color:var(--danger);font-weight:600;">
+            Atencion: el bloqueo de descargas duplicadas se basa en estos registros.
+            Todos los inscriptos van a poder descargar el certificado de nuevo.
+            Los inscriptos, eventos y templates no se tocan.
+        </p>
+        <form method="post" action="{% url 'panel_stats_reset' %}">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="resetConfirm">Escribir <strong>REINICIAR</strong> para confirmar</label>
+                <input type="text" id="resetConfirm" name="confirm" autocomplete="off" spellcheck="false" oninput="checkResetWord(this)">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeResetModal()">Cancelar</button>
+                <button type="submit" class="btn btn-danger" id="resetSubmit" disabled>Reiniciar estadisticas</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -154,4 +185,27 @@
     }
 })();
 </script>
+{% if user.is_superuser %}
+<script>
+function openResetModal() {
+    var input = document.getElementById('resetConfirm');
+    input.value = '';
+    document.getElementById('resetSubmit').disabled = true;
+    document.getElementById('resetStatsModal').classList.add('active');
+    setTimeout(function() { input.focus(); }, 50);
+}
+function closeResetModal() {
+    document.getElementById('resetStatsModal').classList.remove('active');
+}
+function checkResetWord(input) {
+    document.getElementById('resetSubmit').disabled = (input.value.trim() !== 'REINICIAR');
+}
+document.getElementById('resetStatsModal').addEventListener('click', function(e) {
+    if (e.target === this) closeResetModal();
+});
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeResetModal();
+});
+</script>
+{% endif %}
 {% endblock %}

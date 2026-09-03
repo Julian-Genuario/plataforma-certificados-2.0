@@ -4,6 +4,9 @@ from io import BytesIO
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.contrib.auth.models import User
 from django.contrib import messages
 from django.db.models import Count, Q
@@ -34,6 +37,10 @@ from .attendees_io import (
     ParseError,
 )
 from .reports import gather_report_data, build_report_pdf
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ── Auth ─────────────────────────────────────
@@ -84,6 +91,45 @@ def panel_dashboard(request):
         "rejected_today": t["rejected_today"],
         "duplicate_total": t["duplicate_total"],
     })
+
+
+STATS_RESET_WORD = "REINICIAR"
+
+
+@login_required(login_url="panel_login")
+@require_POST
+def panel_stats_reset(request):
+    """Borra descargas e intentos rechazados de TODOS los eventos.
+
+    Pone el dashboard en cero. Efecto colateral buscado: como el bloqueo de
+    duplicados se apoya en DownloadLog, todos quedan habilitados a bajar el
+    certificado de nuevo. Por eso exige superusuario + palabra de confirmación.
+    Inscriptos, eventos y templates no se tocan.
+    """
+    if not request.user.is_superuser:
+        raise PermissionDenied
+
+    if request.POST.get("confirm", "") != STATS_RESET_WORD:
+        messages.error(
+            request,
+            f"No se reiniciaron las estadisticas: hay que escribir {STATS_RESET_WORD} para confirmar.",
+        )
+        return redirect("panel_dashboard")
+
+    with transaction.atomic():
+        downloads, _ = DownloadLog.objects.all().delete()
+        rejected, _ = RejectedAttempt.objects.all().delete()
+
+    logger.warning(
+        "Estadisticas reiniciadas por %s desde %s: %d descargas y %d intentos rechazados borrados",
+        request.user.username, _get_client_ip(request), downloads, rejected,
+    )
+    messages.success(
+        request,
+        f"Estadisticas reiniciadas: se borraron {downloads} descargas y {rejected} intentos rechazados. "
+        "Todos los inscriptos pueden volver a descargar.",
+    )
+    return redirect("panel_dashboard")
 
 
 @login_required(login_url="panel_login")

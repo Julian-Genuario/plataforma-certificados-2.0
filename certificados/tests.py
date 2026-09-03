@@ -1008,3 +1008,81 @@ class HeaderlessImportTests(TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(len(clean), 1)
         self.assertEqual(clean[0][1], "patrymacaine15@gmail.com")
+
+
+class PanelStatsResetTests(TestCase):
+    """Botón 'Reiniciar estadísticas' del dashboard."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "superadmin", password="x", is_staff=True, is_superuser=True
+        )
+        self.event = Event.objects.create(name="Evento", slug="evento")
+        self.attendee = Attendee.objects.create(
+            event=self.event, full_name="Ana Perez", email="ana@x.com"
+        )
+        DownloadLog.objects.create(event=self.event, name_entered="Ana Perez")
+        DownloadLog.objects.create(event=self.event, name_entered="Juan", manual=True)
+        RejectedAttempt.objects.create(
+            event=self.event, name_entered="Otro", reason="not_found"
+        )
+        self.url = reverse("panel_stats_reset")
+
+    def _post(self, confirm="REINICIAR"):
+        return self.client.post(self.url, {"confirm": confirm})
+
+    def test_reset_deletes_logs_and_rejections_but_keeps_attendees(self):
+        self.client.force_login(self.admin)
+        resp = self._post()
+        self.assertRedirects(resp, reverse("panel_dashboard"))
+        self.assertEqual(DownloadLog.objects.count(), 0)
+        self.assertEqual(RejectedAttempt.objects.count(), 0)
+        self.assertEqual(Attendee.objects.count(), 1)
+        self.assertEqual(Event.objects.count(), 1)
+
+    def test_reset_requires_confirmation_word(self):
+        self.client.force_login(self.admin)
+        for bad in ("", "reiniciar", "REINICIA", "SI"):
+            resp = self._post(confirm=bad)
+            self.assertRedirects(resp, reverse("panel_dashboard"))
+            self.assertEqual(DownloadLog.objects.count(), 2, bad)
+            self.assertEqual(RejectedAttempt.objects.count(), 1, bad)
+
+    def test_reset_requires_superuser(self):
+        staff = User.objects.create_user("staff", password="x", is_staff=True)
+        self.client.force_login(staff)
+        resp = self._post()
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(DownloadLog.objects.count(), 2)
+
+    def test_reset_requires_login(self):
+        resp = self._post()
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse("panel_login"), resp["Location"])
+        self.assertEqual(DownloadLog.objects.count(), 2)
+
+    def test_reset_rejects_get(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 405)
+        self.assertEqual(DownloadLog.objects.count(), 2)
+
+    def test_dashboard_shows_button_only_to_superuser(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("panel_dashboard"))
+        self.assertContains(resp, "Reiniciar estadisticas")
+        self.assertContains(resp, self.url)
+
+        staff = User.objects.create_user("staff2", password="x", is_staff=True)
+        self.client.force_login(staff)
+        resp = self.client.get(reverse("panel_dashboard"))
+        self.assertNotContains(resp, "Reiniciar estadisticas")
+
+    def test_after_reset_attendee_can_download_again(self):
+        # Borrar los logs levanta el bloqueo de duplicados: es el efecto
+        # buscado (limpiar pruebas antes del evento), y queda documentado.
+        self.client.force_login(self.admin)
+        self._post()
+        self.assertFalse(
+            DownloadLog.objects.filter(attendee=self.attendee).exists()
+        )
