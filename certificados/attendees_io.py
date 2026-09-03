@@ -117,13 +117,25 @@ def _clean_row(name_idx, surname_idx, email_idx, row):
         email = _cell(email_idx)
         return full_name, email
 
+    # Sin encabezados: el email es la celda que parece email y el nombre es
+    # el resto (Nombre + Apellido en columnas separadas, en cualquier orden).
+    # Caso real 03-09: xlsx de 3 columnas sin títulos → antes se tomaba la
+    # 2ª celda (el apellido) como email y 14.879 filas caían por "inválido".
     cells = [str(c).strip() for c in row if str(c).strip()]
     if len(cells) < 2:
         return cells[0] if cells else "", ""
 
-    if _is_email_like(cells[0]) and not _is_email_like(cells[1]):
-        return cells[1], cells[0]
-    return cells[0], cells[1]
+    email_positions = [i for i, c in enumerate(cells) if _is_email_like(c)]
+    if not email_positions:
+        # Nada parece email: se conserva el comportamiento viejo (2 primeras
+        # celdas) para que _validate reporte "Email inválido" con la fila.
+        return cells[0], cells[1]
+    # Si hay varios candidatos (fila corrupta con un email en la columna del
+    # nombre), gana el último: en los exports el email va a la derecha.
+    email_idx_ = email_positions[-1]
+    email = cells[email_idx_]
+    name = " ".join(c for i, c in enumerate(cells) if i != email_idx_)
+    return name, email
 
 
 def _validate(name, email):

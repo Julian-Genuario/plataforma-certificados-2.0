@@ -949,3 +949,62 @@ class EmbedTests(TestCase):
     def test_embed_form_action_carries_param(self):
         resp = self.client.get("/e/ev/?embed=1")
         self.assertContains(resp, "?embed=1")
+
+
+class HeaderlessImportTests(TestCase):
+    """Archivos sin fila de encabezado (caso real 03-09: xlsx exportado de
+    Excel con Nombre | Apellido | Email y sin títulos → 14.879 'Email inválido')."""
+
+    def _xlsx(self, rows):
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        for r in rows:
+            ws.append(r)
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return SimpleUploadedFile("sin_encabezado.xlsx", buf.read())
+
+    def test_three_columns_without_header_uses_email_cell(self):
+        clean, errors, skipped = parse_uploaded_file(self._xlsx([
+            ["Juana Victoria ", "Zuta Chávez ", "juani.zuta@gmail.com"],
+            ["Santiago", "Muchut", "santimuchut@live.com"],
+        ]))
+        self.assertEqual(errors, [])
+        self.assertEqual(clean, [
+            ("Juana Victoria Zuta Chávez", "juani.zuta@gmail.com"),
+            ("Santiago Muchut", "santimuchut@live.com"),
+        ])
+
+    def test_email_in_first_column_without_header(self):
+        clean, errors, _ = parse_uploaded_file(self._xlsx([
+            ["ana@x.com", "Ana", "Pérez"],
+        ]))
+        self.assertEqual(errors, [])
+        self.assertEqual(clean, [("Ana Pérez", "ana@x.com")])
+
+    def test_two_columns_without_header_still_works(self):
+        clean, errors, _ = parse_text("Juan Perez, juan@x.com\nmaria@x.com; Maria Gomez")
+        self.assertEqual(errors, [])
+        self.assertEqual(clean, [("Juan Perez", "juan@x.com"), ("Maria Gomez", "maria@x.com")])
+
+    def test_row_without_any_email_reports_error(self):
+        clean, errors, _ = parse_uploaded_file(self._xlsx([
+            ["Juana", "Zuta", "sin-arroba"],
+        ]))
+        self.assertEqual(clean, [])
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0][1], "Email inválido")
+
+    def test_real_shape_name_as_email_column_is_not_swallowed(self):
+        # Fila corrupta del export real: un email en la columna del nombre y
+        # otro en la de email. Debe tomarse el email de la columna email y el
+        # resto queda como nombre (después lo filtra la cola de sospechosos
+        # o el revisor), nunca descartar la fila en silencio.
+        clean, errors, _ = parse_uploaded_file(self._xlsx([
+            ["patriciamacaine@gmail.com", "Macaine", "patrymacaine15@gmail.com"],
+        ]))
+        self.assertEqual(errors, [])
+        self.assertEqual(len(clean), 1)
+        self.assertEqual(clean[0][1], "patrymacaine15@gmail.com")
