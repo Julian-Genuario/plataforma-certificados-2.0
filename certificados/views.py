@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 from datetime import timedelta
 from functools import wraps
@@ -109,7 +110,28 @@ def csrf_failure(request, reason=""):
 
 
 def _get_client_ip(request):
-    return request.META.get("REMOTE_ADDR")
+    """IP real del visitante.
+
+    Detras de nginx + socket unix REMOTE_ADDR viene vacio; nginx manda la IP
+    en X-Real-IP y la agrega al FINAL de X-Forwarded-For (las entradas
+    anteriores las puede haber escrito el cliente, no son confiables).
+    Devuelve None si nada parece una IP valida, para no romper el guardado
+    en el GenericIPAddressField.
+    """
+    candidates = [
+        request.META.get("HTTP_X_REAL_IP", ""),
+        request.META.get("HTTP_X_FORWARDED_FOR", "").rsplit(",", 1)[-1],
+        request.META.get("REMOTE_ADDR", ""),
+    ]
+    for raw in candidates:
+        raw = (raw or "").strip()
+        if not raw:
+            continue
+        try:
+            return str(ipaddress.ip_address(raw))
+        except ValueError:
+            continue
+    return None
 
 
 def _log_rejected(event, request, reason, name="", email=""):

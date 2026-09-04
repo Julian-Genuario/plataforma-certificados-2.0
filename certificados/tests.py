@@ -1086,3 +1086,80 @@ class PanelStatsResetTests(TestCase):
         self.assertFalse(
             DownloadLog.objects.filter(attendee=self.attendee).exists()
         )
+
+
+class PanelCsvExportTests(TestCase):
+    """Los exports CSV del panel se generan por streaming; antes reventaban
+    en la primera fila (csv.writer sobre BytesIO) y el archivo salia vacio."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("admin", password="x", is_staff=True, is_superuser=True)
+        self.client.force_login(self.user)
+        self.event = Event.objects.create(name="Congreso", slug="congreso", require_email=True)
+        DownloadLog.objects.create(event=self.event, name_entered="Mariela Alvarenga", ip="203.0.113.5", user_agent="UA")
+        RejectedAttempt.objects.create(
+            event=self.event, name_entered="Nadie", email_entered="nadie@x.com", reason="not_in_list"
+        )
+
+    def _csv(self, name):
+        resp = self.client.get(reverse(name))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp["Content-Type"].startswith("text/csv"))
+        body = b"".join(resp.streaming_content).decode("utf-8")
+        return body
+
+    def test_logs_export_has_header_and_rows(self):
+        body = self._csv("panel_logs_export")
+        lines = [l for l in body.splitlines() if l]
+        self.assertEqual(lines[0].split(",")[:3], ["Evento", "Nombre", "Tipo"])
+        self.assertEqual(len(lines), 2)
+        self.assertIn("Mariela Alvarenga", lines[1])
+        self.assertIn("203.0.113.5", lines[1])
+
+    def test_rejected_export_has_header_and_rows(self):
+        body = self._csv("panel_rejected_export")
+        lines = [l for l in body.splitlines() if l]
+        self.assertEqual(lines[0].split(",")[:3], ["Evento", "Nombre", "Email"])
+        self.assertEqual(len(lines), 2)
+        self.assertIn("nadie@x.com", lines[1])
+
+
+class ClientIpTests(TestCase):
+    """Detras de nginx + socket unix REMOTE_ADDR viene vacio: la IP real
+    llega en X-Real-IP (o al final de X-Forwarded-For)."""
+
+    def setUp(self):
+        self.event = Event.objects.create(name="Vacunologia", slug="vacuno-ip", require_email=True)
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        self.url = reverse("download_certificate", kwargs={"slug": self.event.slug})
+        self.data = {"full_name": "Juan Pérez", "email": "juan@mail.com"}
+
+    def test_x_real_ip_is_logged(self):
+        self.client.post(self.url, self.data, HTTP_X_REAL_IP="203.0.113.9", REMOTE_ADDR="")
+        self.assertEqual(DownloadLog.objects.get().ip, "203.0.113.9")
+
+    def test_last_forwarded_for_entry_is_used(self):
+        self.client.post(
+            self.url, self.data, HTTP_X_FORWARDED_FOR="10.0.0.1, 2800:810::1", REMOTE_ADDR=""
+        )
+        self.assertEqual(DownloadLog.objects.get().ip, "2800:810::1")
+
+    def test_remote_addr_fallback(self):
+        self.client.post(self.url, self.data, REMOTE_ADDR="198.51.100.7")
+        self.assertEqual(DownloadLog.objects.get().ip, "198.51.100.7")
+
+    def test_garbage_header_does_not_break_download(self):
+        resp = self.client.post(self.url, self.data, HTTP_X_REAL_IP="no-es-una-ip", REMOTE_ADDR="")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(DownloadLog.objects.get().ip)
+
+    def test_rejected_attempt_gets_ip_too(self):
+        self.client.post(
+            self.url, {"full_name": "Otro", "email": "otro@mail.com"}, HTTP_X_REAL_IP="203.0.113.9", REMOTE_ADDR=""
+        )
+        self.assertEqual(RejectedAttempt.objects.get().ip, "203.0.113.9")

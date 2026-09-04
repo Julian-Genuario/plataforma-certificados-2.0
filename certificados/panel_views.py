@@ -1,6 +1,6 @@
 import csv
 import zipfile
-from io import BytesIO
+from io import BytesIO, StringIO
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -701,10 +701,10 @@ def panel_logs_export(request):
         logs = logs.filter(manual=False)
 
     def generate():
-        row_buffer = BytesIO()
+        row_buffer = StringIO()
         writer = csv.writer(row_buffer, dialect="excel")
         writer.writerow(["Evento", "Nombre", "Tipo", "Fecha", "IP", "User Agent"])
-        yield row_buffer.getvalue().decode("utf-8")
+        yield row_buffer.getvalue()
         row_buffer.seek(0)
         row_buffer.truncate()
 
@@ -717,7 +717,7 @@ def panel_logs_export(request):
                 log.ip or "",
                 log.user_agent,
             ])
-            yield row_buffer.getvalue().decode("utf-8")
+            yield row_buffer.getvalue()
             row_buffer.seek(0)
             row_buffer.truncate()
 
@@ -783,10 +783,10 @@ def panel_rejected_export(request):
     reason_labels = dict(RejectedAttempt.REASON_CHOICES)
 
     def generate():
-        row_buffer = BytesIO()
+        row_buffer = StringIO()
         writer = csv.writer(row_buffer, dialect="excel")
         writer.writerow(["Evento", "Nombre", "Email", "Motivo", "Fecha", "IP"])
-        yield row_buffer.getvalue().decode("utf-8")
+        yield row_buffer.getvalue()
         row_buffer.seek(0)
         row_buffer.truncate()
 
@@ -799,7 +799,7 @@ def panel_rejected_export(request):
                 r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                 r.ip or "",
             ])
-            yield row_buffer.getvalue().decode("utf-8")
+            yield row_buffer.getvalue()
             row_buffer.seek(0)
             row_buffer.truncate()
 
