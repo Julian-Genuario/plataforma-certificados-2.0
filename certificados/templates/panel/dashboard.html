@@ -5,7 +5,7 @@
 {% block topbar_actions %}
 <a href="{% url 'panel_report_pdf' %}" class="btn btn-secondary btn-sm">Exportar informe</a>
 {% if user.is_superuser %}
-<button type="button" class="btn btn-danger btn-sm" onclick="openResetModal()">Reiniciar estadisticas</button>
+<button type="button" class="btn btn-danger btn-sm" onclick="openResetModal()">Reiniciar estadísticas</button>
 {% endif %}
 {% endblock %}
 
@@ -35,14 +35,14 @@
         <div class="stat-sub">{{ rejected_today }} hoy &middot; {{ duplicate_total }} duplicado{{ duplicate_total|pluralize:"s" }}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Ultimo evento</div>
+        <div class="stat-label">Último evento</div>
         <div class="stat-value" style="font-size:20px;">{{ latest_event.name|default:"Ninguno" }}</div>
     </div>
 </div>
 
 <div class="card">
     <div class="card-header">
-        <div class="card-title">Descargas ultimos 7 dias</div>
+        <div class="card-title">Descargas últimos 7 días</div>
     </div>
     <div class="chart-container">
         <canvas id="chart" style="width:100%;height:200px;"></canvas>
@@ -51,7 +51,7 @@
 
 <div class="card">
     <div class="card-header">
-        <div class="card-title">Ultimas descargas</div>
+        <div class="card-title">Últimas descargas</div>
         <a href="{% url 'panel_logs' %}" class="btn btn-secondary btn-sm">Ver todas</a>
     </div>
     <div class="table-wrap">
@@ -80,7 +80,7 @@
 {% if user.is_superuser %}
 <div class="modal-overlay" id="resetStatsModal">
     <div class="modal">
-        <h3>Reiniciar estadisticas</h3>
+        <h3>Reiniciar estadísticas</h3>
         <p>
             Se van a borrar <strong>{{ total_downloads }} descarga{{ total_downloads|pluralize:"s" }}</strong>
             y <strong>{{ rejected_total }} intento{{ rejected_total|pluralize:"s" }} rechazado{{ rejected_total|pluralize:"s" }}</strong>
@@ -99,7 +99,7 @@
             </div>
             <div class="modal-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeResetModal()">Cancelar</button>
-                <button type="submit" class="btn btn-danger" id="resetSubmit" disabled>Reiniciar estadisticas</button>
+                <button type="submit" class="btn btn-danger" id="resetSubmit" disabled>Reiniciar estadísticas</button>
             </div>
         </form>
     </div>
@@ -128,9 +128,11 @@
     ctx.strokeStyle = '#e5e7eb';
     ctx.lineWidth = 1;
 
-    // Grid lines
-    for (var i = 0; i <= 4; i++) {
-        var gy = padding.top + h - (h * i / 4);
+    // Grid lines: con pocas descargas (max < 4) se dibujan solo los enteros
+    // para que el eje no repita "1 1 1 0 0".
+    var steps = Math.min(4, maxVal);
+    for (var i = 0; i <= steps; i++) {
+        var gy = padding.top + h - (h * i / steps);
         ctx.beginPath();
         ctx.moveTo(padding.left, gy);
         ctx.lineTo(padding.left + w, gy);
@@ -139,7 +141,7 @@
         ctx.fillStyle = '#9ca3af';
         ctx.font = '11px -apple-system, sans-serif';
         ctx.textAlign = 'right';
-        ctx.fillText(Math.round(maxVal * i / 4), padding.left - 8, gy + 4);
+        ctx.fillText(Math.round(maxVal * i / steps), padding.left - 8, gy + 4);
     }
 
     // Bars

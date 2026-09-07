@@ -1070,13 +1070,13 @@ class PanelStatsResetTests(TestCase):
     def test_dashboard_shows_button_only_to_superuser(self):
         self.client.force_login(self.admin)
         resp = self.client.get(reverse("panel_dashboard"))
-        self.assertContains(resp, "Reiniciar estadisticas")
+        self.assertContains(resp, "Reiniciar estadísticas")
         self.assertContains(resp, self.url)
 
         staff = User.objects.create_user("staff2", password="x", is_staff=True)
         self.client.force_login(staff)
         resp = self.client.get(reverse("panel_dashboard"))
-        self.assertNotContains(resp, "Reiniciar estadisticas")
+        self.assertNotContains(resp, "Reiniciar estadísticas")
 
     def test_after_reset_attendee_can_download_again(self):
         # Borrar los logs levanta el bloqueo de duplicados: es el efecto

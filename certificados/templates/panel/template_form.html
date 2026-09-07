@@ -10,7 +10,7 @@
 {% block content %}
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
     <div class="card">
-        <div class="card-title" style="margin-bottom:20px;">Configuracion</div>
+        <div class="card-title" style="margin-bottom:20px;">Configuración</div>
         <form method="post" enctype="multipart/form-data" id="templateForm">
             {% csrf_token %}
 
@@ -44,11 +44,11 @@
 
             <div class="form-row">
                 <div class="form-group">
-                    <label>Pagina (desde 0)</label>
+                    <label>Página (desde 0)</label>
                     <input type="number" name="page_number" id="pageNum" value="{{ tpl_page_number }}" min="0">
                 </div>
                 <div class="form-group">
-                    <label>Tamano de fuente</label>
+                    <label>Tamaño de fuente</label>
                     <input type="number" name="font_size" id="fontSize" value="{{ tpl_font_size }}" step="any" min="1" oninput="renderPreview()">
                 </div>
             </div>
@@ -63,7 +63,7 @@
                     <input type="number" name="y" id="inputY" value="{{ tpl_y }}" step="any" oninput="renderPreview()">
                 </div>
                 <div class="form-group">
-                    <label>Alineacion</label>
+                    <label>Alineación</label>
                     <select name="align" id="alignSel" onchange="renderPreview()">
                         <option value="center" {% if template.align == 'center' or not template %}selected{% endif %}>Centro</option>
                         <option value="left" {% if template.align == 'left' %}selected{% endif %}>Izquierda</option>
@@ -83,13 +83,13 @@
 
             <div class="form-row">
                 <div class="form-group">
-                    <label>Ancho del renglon (0 = tamano fijo)</label>
+                    <label>Ancho del renglón (0 = tamaño fijo)</label>
                     <input type="number" name="max_width" id="maxWidth" value="{{ tpl_max_width }}" step="any" min="0" oninput="renderPreview()">
                     <div class="form-help">Si es mayor a 0, el nombre se achica solo para entrar en este ancho.</div>
                 </div>
                 <div class="form-group">
                     <label>&nbsp;</label>
-                    <button type="button" class="btn btn-secondary" style="width:100%;" onclick="centerOnPage()">Centrar en la pagina</button>
+                    <button type="button" class="btn btn-secondary" style="width:100%;" onclick="centerOnPage()">Centrar en la página</button>
                 </div>
             </div>
 
@@ -120,11 +120,11 @@
             <canvas id="overlayCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;cursor:crosshair;"></canvas>
         </div>
         <div style="margin-top:8px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;color:#166534;text-align:center;">
-            Arrastra el nombre sobre el PDF para ubicarlo. Despues afinalo con las flechas del teclado (Shift = 10pt).
+            Arrastrá el nombre sobre el PDF para ubicarlo. Después afinalo con las flechas del teclado (Shift = 10pt).
         </div>
 
         <div style="margin-top:12px;font-size:12px;color:#6b7280;text-align:center;">
-            Modifica X, Y o el tamano de fuente y la vista previa se actualiza en tiempo real.
+            Modificá X, Y o el tamaño de fuente y la vista previa se actualiza en tiempo real.
             {% if template %}
             <br><a href="{% url 'panel_template_preview' pk=template.pk %}?name=Juan+Perez&fmt=pdf" target="_blank" style="color:#3b82f6;">Descargar PDF de prueba</a>
             {% endif %}
