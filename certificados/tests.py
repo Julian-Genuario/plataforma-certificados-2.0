@@ -1163,3 +1163,38 @@ class ClientIpTests(TestCase):
             self.url, {"full_name": "Otro", "email": "otro@mail.com"}, HTTP_X_REAL_IP="203.0.113.9", REMOTE_ADDR=""
         )
         self.assertEqual(RejectedAttempt.objects.get().ip, "203.0.113.9")
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class DownloadDoneScreenTests(TestCase):
+    """La pantalla 'Certificado listo' (flujo embed) trae la pantalla final
+    'Felicitaciones, descarga finalizada' con redirección automática a la web
+    del organizador a los 15 segundos + botón para ir ya."""
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.event = Event.objects.create(name="Vac", slug="vac", require_email=True)
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        self.url = reverse("download_certificate", kwargs={"slug": self.event.slug}) + "?embed=1"
+
+    def test_ready_page_has_done_screen_and_redirect(self):
+        from .views import POST_DOWNLOAD_REDIRECT_URL, POST_DOWNLOAD_REDIRECT_SECONDS
+        resp = self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Certificado listo")
+        self.assertContains(resp, 'id="done" hidden')
+        self.assertContains(resp, "Felicitaciones")
+        self.assertContains(resp, "Descarga finalizada")
+        self.assertContains(resp, 'href="%s" target="_top"' % POST_DOWNLOAD_REDIRECT_URL)
+        self.assertContains(resp, '<span id="countdown">%d</span>' % POST_DOWNLOAD_REDIRECT_SECONDS)
+        self.assertEqual(POST_DOWNLOAD_REDIRECT_SECONDS, 15)
+        self.assertEqual(POST_DOWNLOAD_REDIRECT_URL, "https://www.brisaplus.com")

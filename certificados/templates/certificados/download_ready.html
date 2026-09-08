@@ -114,7 +114,7 @@
 <body class="{% if request.GET.embed %}embed{% endif %}">
 
 <div class="card">
-    <div class="card-inner">
+    <div class="card-inner" id="ready">
         <h1>¡Certificado listo!</h1>
         <div class="subtitle">{{ event.name }}</div>
 
@@ -154,7 +154,67 @@
             <a href="{% url 'event_page' slug=event.slug %}{% if request.GET.embed %}?embed=1{% endif %}">Volver al formulario</a>
         </div>
     </div>
+
+    {# Pantalla final: aparece al tocar "Descargar" o al compartir, y a los #}
+    {# {{ redirect_seconds }} s lleva a la web del organizador. #}
+    <div class="card-inner" id="done" hidden>
+        <h1>¡Felicitaciones!</h1>
+        <div class="subtitle">Descarga finalizada</div>
+        <div class="hint" style="font-size:15px;">
+            En <strong><span id="countdown">{{ redirect_seconds }}</span> segundos</strong>
+            te llevamos a <strong>{{ redirect_label }}</strong>.
+        </div>
+        <a class="download-btn" id="go-now" href="{{ redirect_url }}" target="_top" rel="noopener">
+            Ir a {{ redirect_label }} ahora
+        </a>
+        <div class="back">
+            <a href="#" id="undo-done">Volver a ver el certificado</a>
+        </div>
+    </div>
 </div>
+
+<script>
+(function () {
+    // Al descargar (PDF o compartir) se muestra "Felicitaciones" y, pasados
+    // N segundos, se navega a la web del organizador. Se navega la ventana
+    // de arriba (window.top) porque el form vive en un iframe; si el
+    // navegador lo bloquea (sin gesto reciente), queda el botón "Ir ahora".
+    var url = "{{ redirect_url|escapejs }}";
+    var seconds = parseInt("{{ redirect_seconds }}", 10) || 15;
+    var ready = document.getElementById('ready');
+    var done = document.getElementById('done');
+    var count = document.getElementById('countdown');
+    var timer = null;
+    function go() {
+        try { window.top.location.href = url; }
+        catch (e) { window.location.href = url; }
+    }
+    function finish() {
+        if (timer) return;
+        ready.hidden = true;
+        done.hidden = false;
+        var left = seconds;
+        count.textContent = left;
+        timer = setInterval(function () {
+            left -= 1;
+            count.textContent = left;
+            if (left <= 0) { clearInterval(timer); go(); }
+        }, 1000);
+        try { window.scrollTo(0, 0); } catch (e) {}
+    }
+    window.__certFinish = finish;
+    document.querySelector('#ready .download-btn').addEventListener('click', function () {
+        // No se frena el click: el PDF se abre/baja igual en su pestaña.
+        setTimeout(finish, 300);
+    });
+    document.getElementById('undo-done').addEventListener('click', function (ev) {
+        ev.preventDefault();
+        if (timer) { clearInterval(timer); timer = null; }
+        done.hidden = true;
+        ready.hidden = false;
+    });
+})();
+</script>
 
 <script>
 (function () {
@@ -189,6 +249,7 @@
     btn.addEventListener('click', function () {
         if (file) {
             navigator.share({ files: [file], title: btn.dataset.title })
+                .then(function () { if (window.__certFinish) window.__certFinish(); })
                 .catch(function () { /* la persona canceló: nada que hacer */ });
             return;
         }
@@ -200,6 +261,7 @@
             btn.disabled = false;
             if (f) {
                 navigator.share({ files: [f], title: btn.dataset.title })
+                    .then(function () { if (window.__certFinish) window.__certFinish(); })
                     .catch(function () {});
             } else {
                 // Sin blob (red rara): abrir la descarga normal.

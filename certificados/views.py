@@ -45,6 +45,12 @@ logger = logging.getLogger(__name__)
 REDOWNLOAD_GRACE = timedelta(minutes=10)
 
 # Firma de los links de descarga directa (flujo embed en dos pasos).
+# Pantalla final "Felicitaciones, descarga finalizada" (flujo embed): pasados
+# POST_DOWNLOAD_REDIRECT_SECONDS se navega a la web del organizador.
+POST_DOWNLOAD_REDIRECT_URL = "https://www.brisaplus.com"
+POST_DOWNLOAD_REDIRECT_LABEL = "brisaplus.com"
+POST_DOWNLOAD_REDIRECT_SECONDS = 15
+
 DOWNLOAD_TOKEN_SALT = "descarga-certificado"
 DOWNLOAD_TOKEN_MAX_AGE = 3600  # 1 hora
 
@@ -375,6 +381,9 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
             "download_url": download_url,
             "image_url": image_url,
             "full_name": full_name,
+            "redirect_url": POST_DOWNLOAD_REDIRECT_URL,
+            "redirect_label": POST_DOWNLOAD_REDIRECT_LABEL,
+            "redirect_seconds": POST_DOWNLOAD_REDIRECT_SECONDS,
         })
 
     filename = f"certificado-{event.slug}.pdf"
