@@ -45,8 +45,11 @@ chown -R "$APP_USER":www-data "$APP_DIR"
 
 echo "==> systemd (gunicorn)"
 install -m 644 deploy/certificados.service /etc/systemd/system/certificados.service
+install -m 644 deploy/certificados-mailer.service /etc/systemd/system/certificados-mailer.service
+install -m 644 deploy/certificados-mailer.timer /etc/systemd/system/certificados-mailer.timer
 systemctl daemon-reload
 systemctl enable --now certificados.service
+systemctl enable --now certificados-mailer.timer
 
 echo "==> Página de fallback de Nginx"
 mkdir -p /var/www/certificados-fallback

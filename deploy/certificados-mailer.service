@@ -1,0 +1,11 @@
+[Unit]
+Description=Envio de certificados por email (una tanda por minuto)
+After=network.target
+
+[Service]
+Type=oneshot
+User=certif
+Group=www-data
+WorkingDirectory=/opt/certificados
+EnvironmentFile=/etc/certificados.env
+ExecStart=/opt/certificados/.venv/bin/python /opt/certificados/manage.py send_certificate_emails

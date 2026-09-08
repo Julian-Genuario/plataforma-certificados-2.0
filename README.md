@@ -83,6 +83,28 @@ Notas:
   algo del repo, borrarlo a mano en el VPS.
 - Si se tocó un `.service`/`.timer` de `deploy/`, copiarlo a
   `/etc/systemd/system/` y hacer `systemctl daemon-reload` antes del restart.
+  El envío de correos corre por `certificados-mailer.timer` (cada minuto,
+  `manage.py send_certificate_emails`): la primera vez,
+  `systemctl enable --now certificados-mailer.timer`.
+- **Correo (certificado adjunto):** se configura en `/etc/certificados.env`,
+  sin tocar código. Gmail de prueba (contraseña de aplicación, tope 500/día):
+
+  ```
+  EMAIL_HOST=smtp.gmail.com
+  EMAIL_PORT=587
+  EMAIL_USE_TLS=1
+  EMAIL_HOST_USER=casilla@gmail.com
+  EMAIL_HOST_PASSWORD=xxxx xxxx xxxx xxxx
+  MAIL_RATE_PER_MINUTE=30
+  MAIL_DAILY_CAP=450
+  ```
+
+  Postmark (producción): `EMAIL_HOST=smtp.postmarkapp.com`, usuario y
+  contraseña = el Server API Token, `MAIL_DAILY_CAP=0`, `DEFAULT_FROM_EMAIL`
+  con una casilla del dominio verificado (SPF + DKIM + DMARC en el DNS de
+  Brisa). Después de cambiar el env: `systemctl restart certificados`
+  (el timer lee el env en cada corrida). Sin `EMAIL_HOST`, los correos quedan
+  pendientes y se reintentan cada minuto sin gastar intentos.
 - **Verificación obligatoria** post-deploy (y al inicio/fin de cada sesión):
   `ssh ... /opt/certificados/deploy/verificar.sh` → tiene que terminar en
   `RESULTADO: PASS`. Chequea servicios, health, watchdog, edad del backup,

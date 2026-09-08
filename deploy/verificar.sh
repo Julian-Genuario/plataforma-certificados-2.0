@@ -11,7 +11,7 @@ ok()   { printf "  OK    %s\n" "$1"; }
 bad()  { printf "  FAIL  %s\n" "$1"; fail=1; }
 
 # 1. servicios
-for u in certificados nginx certificados-watchdog.timer certificados-backup.timer; do
+for u in certificados nginx certificados-watchdog.timer certificados-backup.timer certificados-mailer.timer; do
   [ "$(systemctl is-active "$u")" = active ] && ok "$u activo" || bad "$u NO activo"
 done
 
@@ -78,6 +78,14 @@ jm=$(sqlite3 "$DB" "PRAGMA journal_mode;" 2>&1)
 # 9. errores de la app en la ultima hora (tracebacks reales, no SIGTERM de reinicios)
 errs=$(journalctl -u certificados --since "1 hour ago" --no-pager 2>/dev/null | grep -c -E "Traceback|Internal Server Error")
 [ "$errs" -eq 0 ] && ok "sin tracebacks en la ultima hora" || bad "$errs tracebacks en la ultima hora (journalctl -u certificados)"
+
+# 10. cola de correos: el timer corre bien, nada trabado ni pendiente viejo
+res=$(systemctl show certificados-mailer.service -p Result --value)
+[ "$res" = success ] && ok "mailer ultima corrida: $res" || bad "mailer ultima corrida: $res (journalctl -u certificados-mailer)"
+old=$(sqlite3 "$DB" "select count(*) from certificados_emaildelivery where status='pending' and attempts=0 and created_at < datetime('now','-30 minutes');" 2>/dev/null || echo 0)
+[ "$old" -eq 0 ] && ok "sin correos pendientes de mas de 30 min" || bad "$old correos pendientes hace mas de 30 min (timer parado o SMTP sin configurar: ver Panel > Correos)"
+stuck=$(sqlite3 "$DB" "select count(*) from certificados_emaildelivery where status='sending' and started_at < datetime('now','-10 minutes');" 2>/dev/null || echo 0)
+[ "$stuck" -eq 0 ] && ok "sin correos trabados en 'sending'" || bad "$stuck correos trabados en sending"
 
 echo
 if [ $fail -eq 0 ]; then echo "RESULTADO: PASS"; else echo "RESULTADO: FAIL"; exit 1; fi

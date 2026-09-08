@@ -1,0 +1,11 @@
+[Unit]
+Description=Cada minuto: enviar correos pendientes de certificados
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -1429,3 +1429,40 @@ class MailerTests(TestCase):
         self.assertEqual(d.attempts, 0)
         self.assertEqual(d.status, "pending")
         self.assertIn("sin red", d.last_error)
+
+
+@override_settings(MEDIA_ROOT=MEDIA, EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", MAIL_DAILY_CAP=0)
+class SendCommandTests(TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def test_command_processes_queue(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from .mailer import enqueue_certificate_email
+        ev = Event.objects.create(name="Vac", slug="vac")
+        CertificateTemplate.objects.create(
+            event=ev, pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"), mode="coords"
+        )
+        att = Attendee.objects.create(event=ev, full_name="Ana", email="ana@mail.com")
+        enqueue_certificate_email(ev, att, "Ana")
+        out = StringIO()
+        call_command("send_certificate_emails", stdout=out)
+        self.assertIn("sent=1", out.getvalue())
+
+    def test_command_max_limits_batch(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from .mailer import enqueue_certificate_email
+        ev = Event.objects.create(name="Vac", slug="vac")
+        CertificateTemplate.objects.create(
+            event=ev, pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"), mode="coords"
+        )
+        for i in range(3):
+            a = Attendee.objects.create(event=ev, full_name=f"P{i}", email=f"p{i}@mail.com")
+            enqueue_certificate_email(ev, a, a.full_name)
+        out = StringIO()
+        call_command("send_certificate_emails", max=2, stdout=out)
+        self.assertIn("sent=2", out.getvalue())
