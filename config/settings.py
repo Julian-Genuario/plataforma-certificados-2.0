@@ -166,3 +166,19 @@ LOGGING = {
         },
     },
 }
+
+# --- Correo con el certificado adjunto. Proveedor agnóstico: SMTP por env. ---
+# Gmail de prueba hoy, Postmark/Resend para el congreso: mismo código, otras
+# variables en /etc/certificados.env. Sin EMAIL_HOST el worker deja todo
+# pendiente y reintenta al minuto (no quema intentos).
+EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1").lower() in ("1", "true", "yes")
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_TIMEOUT = 30
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "certificados@localhost")
+MAIL_RATE_PER_MINUTE = int(os.environ.get("MAIL_RATE_PER_MINUTE", "30"))
+MAIL_DAILY_CAP = int(os.environ.get("MAIL_DAILY_CAP", "450"))  # 0 = sin tope
+MAIL_STUCK_MINUTES = 10

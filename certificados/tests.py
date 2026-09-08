@@ -1284,3 +1284,148 @@ class SingleUseDownloadTests(TestCase):
         self.assertNotContains(resp, "se puede tocar más de una vez")
         self.assertContains(resp, "una sola vez")
         self.assertNotContains(resp, "undo-done")
+
+
+class EmailDeliveryModelTests(TestCase):
+    def test_defaults_and_active_uniqueness(self):
+        from .models import EmailDelivery
+        ev = Event.objects.create(name="Vac", slug="vac")
+        att = Attendee.objects.create(event=ev, full_name="Juan Pérez", email="juan@mail.com")
+        d = EmailDelivery.objects.create(event=ev, attendee=att, to_email=att.email, full_name=att.full_name)
+        self.assertEqual(d.status, EmailDelivery.STATUS_PENDING)
+        self.assertEqual(d.attempts, 0)
+        self.assertIsNotNone(d.next_attempt_at)
+        self.assertTrue(EmailDelivery.objects.active_for(ev, att).exists())
+
+    def test_site_settings_mail_defaults(self):
+        from .models import SiteSettings
+        s = SiteSettings.load()
+        self.assertEqual(s.mail_from_name, "Brisa Enfermeros")
+        self.assertIn("{evento}", s.mail_subject)
+        self.assertIn("{nombre}", s.mail_body)
+
+
+@override_settings(MEDIA_ROOT=MEDIA, EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+                   MAIL_RATE_PER_MINUTE=100, MAIL_DAILY_CAP=0)
+class MailerTests(TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        from django.core import mail
+        mail.outbox = []
+        self.event = Event.objects.create(name="X Congreso", slug="xc", require_email=True)
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        self.att = Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+
+    def test_enqueue_dedupes_per_attendee(self):
+        from .mailer import enqueue_certificate_email
+        d1, c1 = enqueue_certificate_email(self.event, self.att, "juan perez")
+        d2, c2 = enqueue_certificate_email(self.event, self.att, "otro nombre")
+        self.assertTrue(c1)
+        self.assertFalse(c2)
+        self.assertEqual(d1.pk, d2.pk)
+        self.assertEqual(d1.to_email, "juan@mail.com")
+        self.assertEqual(d1.full_name, "Juan Pérez")  # el de la lista, no el tipeado
+
+    def test_process_sends_with_pdf_attached(self):
+        from django.core import mail
+        from .mailer import enqueue_certificate_email, process_queue
+        from .models import EmailDelivery
+        enqueue_certificate_email(self.event, self.att, "Juan Pérez")
+        r = process_queue()
+        self.assertEqual(r["sent"], 1)
+        msg = mail.outbox[0]
+        self.assertEqual(msg.to, ["juan@mail.com"])
+        self.assertIn("X Congreso", msg.subject)
+        self.assertIn("Juan Pérez", msg.body)
+        name, content, mimetype = msg.attachments[0]
+        self.assertEqual(name, "certificado-xc.pdf")
+        self.assertEqual(mimetype, "application/pdf")
+        self.assertTrue(content.startswith(b"%PDF"))
+        html = [a for a in msg.alternatives if a[1] == "text/html"]
+        self.assertEqual(len(html), 1)
+        d = EmailDelivery.objects.get()
+        self.assertEqual(d.status, "sent")
+        self.assertIsNotNone(d.sent_at)
+        self.assertEqual(d.attempts, 1)
+
+    def test_failure_schedules_retry_then_fails(self):
+        from unittest import mock
+        from .mailer import enqueue_certificate_email, process_queue
+        from .models import EmailDelivery
+        from django.utils import timezone
+        from datetime import timedelta
+        enqueue_certificate_email(self.event, self.att, "Juan Pérez")
+        with mock.patch("certificados.mailer._send", side_effect=RuntimeError("smtp caído")):
+            r = process_queue()
+        d = EmailDelivery.objects.get()
+        self.assertEqual(r["retried"], 1)
+        self.assertEqual(d.status, "pending")
+        self.assertEqual(d.attempts, 1)
+        self.assertIn("smtp caído", d.last_error)
+        self.assertGreater(d.next_attempt_at, timezone.now() + timedelta(seconds=50))
+        with mock.patch("certificados.mailer._send", side_effect=RuntimeError("x")):
+            for _ in range(4):
+                EmailDelivery.objects.filter(pk=d.pk).update(next_attempt_at=timezone.now() - timedelta(seconds=1))
+                process_queue()
+        d.refresh_from_db()
+        self.assertEqual(d.status, "failed")
+        self.assertEqual(d.attempts, 5)
+
+    def test_not_due_is_skipped(self):
+        from .mailer import enqueue_certificate_email, process_queue
+        from .models import EmailDelivery
+        from django.utils import timezone
+        from datetime import timedelta
+        d, _ = enqueue_certificate_email(self.event, self.att, "Juan Pérez")
+        EmailDelivery.objects.filter(pk=d.pk).update(next_attempt_at=timezone.now() + timedelta(hours=1))
+        self.assertEqual(process_queue()["sent"], 0)
+
+    def test_rate_and_daily_cap(self):
+        from .mailer import enqueue_certificate_email, process_queue
+        for i in range(3):
+            a = Attendee.objects.create(event=self.event, full_name=f"Persona {i}", email=f"p{i}@mail.com")
+            enqueue_certificate_email(self.event, a, a.full_name)
+        with self.settings(MAIL_RATE_PER_MINUTE=2):
+            self.assertEqual(process_queue()["sent"], 2)
+        with self.settings(MAIL_DAILY_CAP=2):
+            self.assertEqual(process_queue()["sent"], 0)  # ya van 2 hoy
+        self.assertEqual(process_queue()["sent"], 1)
+
+    def test_stuck_sending_is_recovered(self):
+        from .mailer import enqueue_certificate_email, process_queue
+        from .models import EmailDelivery
+        from django.utils import timezone
+        from datetime import timedelta
+        d, _ = enqueue_certificate_email(self.event, self.att, "Juan Pérez")
+        EmailDelivery.objects.filter(pk=d.pk).update(status="sending", started_at=timezone.now() - timedelta(minutes=30))
+        self.assertEqual(process_queue()["sent"], 1)
+
+    def test_missing_template_is_retried_with_clear_error(self):
+        from .mailer import enqueue_certificate_email, process_queue
+        from .models import EmailDelivery
+        CertificateTemplate.objects.all().delete()
+        enqueue_certificate_email(self.event, self.att, "Juan Pérez")
+        r = process_queue()
+        self.assertEqual(r["retried"], 1)
+        self.assertIn("template", EmailDelivery.objects.get().last_error.lower())
+
+    def test_smtp_connection_down_skips_without_burning_attempts(self):
+        from unittest import mock
+        from .mailer import enqueue_certificate_email, process_queue
+        from .models import EmailDelivery
+        enqueue_certificate_email(self.event, self.att, "Juan Pérez")
+        with mock.patch("django.core.mail.backends.locmem.EmailBackend.open", side_effect=OSError("sin red")):
+            r = process_queue()
+        d = EmailDelivery.objects.get()
+        self.assertEqual(r["skipped"], 1)
+        self.assertEqual(d.attempts, 0)
+        self.assertEqual(d.status, "pending")
+        self.assertIn("sin red", d.last_error)

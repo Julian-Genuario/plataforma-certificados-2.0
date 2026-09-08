@@ -1,6 +1,7 @@
 import unicodedata
 
 from django.db import models
+from django.utils import timezone
 
 
 def normalize_text(value):
@@ -17,6 +18,13 @@ def normalize_email(value):
         return ""
     return str(value).strip().lower()
 
+
+DEFAULT_MAIL_BODY = (
+    "Hola {nombre},\n\n"
+    "Adjuntamos tu certificado de participación en el {evento}.\n\n"
+    "Guardalo en tu dispositivo. Ante cualquier consulta, responder este correo.\n\n"
+    "Brisa Enfermeros"
+)
 
 DEFAULT_MAINTENANCE_MESSAGE = (
     "Estamos recibiendo muchas visitas en este momento. "
@@ -61,6 +69,28 @@ class SiteSettings(models.Model):
         blank=True,
         default=DEFAULT_MAINTENANCE_MESSAGE,
         help_text="Mensaje que se muestra cuando el modo mantenimiento está activo.",
+    )
+
+    # --- Correo con el certificado adjunto (Opción A) ---
+    mail_from_name = models.CharField(
+        max_length=120, default="Brisa Enfermeros",
+        help_text="Nombre visible del remitente.",
+    )
+    mail_from_email = models.EmailField(
+        blank=True, default="",
+        help_text="Casilla remitente. Vacío = la casilla configurada en el servidor (EMAIL_HOST_USER).",
+    )
+    mail_reply_to = models.EmailField(
+        blank=True, default="",
+        help_text="A dónde llegan las respuestas. Vacío = el remitente.",
+    )
+    mail_subject = models.CharField(
+        max_length=200, default="Tu certificado del {evento}",
+        help_text="Asunto. Variables: {nombre}, {evento}.",
+    )
+    mail_body = models.TextField(
+        default=DEFAULT_MAIL_BODY,
+        help_text="Texto del correo (texto plano). Variables: {nombre}, {evento}.",
     )
 
     class Meta:
@@ -259,3 +289,61 @@ class SuspiciousAttendee(models.Model):
 
     def __str__(self):
         return f"{self.event.slug} - {self.full_name} ({self.reason})"
+
+
+class EmailDeliveryQuerySet(models.QuerySet):
+    def active_for(self, event, attendee):
+        """Entregas vivas (pendiente/enviando/enviada) de un inscripto en un evento."""
+        return self.filter(
+            event=event,
+            attendee=attendee,
+            status__in=[
+                EmailDelivery.STATUS_PENDING,
+                EmailDelivery.STATUS_SENDING,
+                EmailDelivery.STATUS_SENT,
+            ],
+        )
+
+
+class EmailDelivery(models.Model):
+    """Cola de correos con el certificado adjunto. Una fila = un envío a un
+    inscripto. La procesa `manage.py send_certificate_emails` cada minuto
+    (timer systemd `certificados-mailer`)."""
+
+    STATUS_PENDING = "pending"
+    STATUS_SENDING = "sending"
+    STATUS_SENT = "sent"
+    STATUS_FAILED = "failed"
+    STATUS_SUPERSEDED = "superseded"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pendiente"),
+        (STATUS_SENDING, "Enviando"),
+        (STATUS_SENT, "Enviado"),
+        (STATUS_FAILED, "Fallido"),
+        (STATUS_SUPERSEDED, "Reemplazado"),
+    ]
+    MAX_ATTEMPTS = 5
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="email_deliveries")
+    attendee = models.ForeignKey(
+        Attendee, null=True, blank=True, on_delete=models.SET_NULL, related_name="email_deliveries"
+    )
+    download_log = models.ForeignKey(DownloadLog, null=True, blank=True, on_delete=models.SET_NULL)
+    to_email = models.EmailField()
+    full_name = models.CharField(max_length=200)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    attempts = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    objects = EmailDeliveryQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["status", "next_attempt_at"])]
+
+    def __str__(self):
+        return f"{self.event.slug} -> {self.to_email} ({self.status})"
