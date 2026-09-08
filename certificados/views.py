@@ -370,6 +370,22 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
             manual=manual,
         )
 
+    # Copia por email (Opción A): solo inscriptos verificados y con la casilla
+    # marcada. Se ENCOLA (nunca se envía en línea); el destinatario es el
+    # email de la lista. No consume la descarga única.
+    mail_to, mail_already = "", False
+    if (
+        not manual
+        and matched_attendee is not None
+        and (request.POST.get("send_email") or "") == "on"
+    ):
+        from .mailer import enqueue_certificate_email
+
+        delivery, created = enqueue_certificate_email(
+            event, matched_attendee, full_name, download_log=log
+        )
+        mail_to, mail_already = delivery.to_email, not created
+
     if not manual and request.GET.get("embed"):
         # Dentro de un iframe, Safari (iPhone) bloquea la descarga adjunta
         # cross-origin: la respuesta llega y no pasa nada (visto en el testeo
@@ -394,6 +410,8 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
             "redirect_url": POST_DOWNLOAD_REDIRECT_URL,
             "redirect_label": POST_DOWNLOAD_REDIRECT_LABEL,
             "redirect_seconds": POST_DOWNLOAD_REDIRECT_SECONDS,
+            "mail_to": mail_to,
+            "mail_already": mail_already,
         })
 
     # Flujo directo (sin iframe): la respuesta ES la entrega.

@@ -98,6 +98,12 @@
             font-size: 13px;
         }
         .back a { color: var(--mensaje); font-weight: 600; }
+        .mail-ok {
+            background: #ecfdf5; border: 1.5px solid #047857; color: #047857;
+            padding: 12px 14px; border-radius: 10px; font-size: 14px;
+            font-weight: 500; margin: 14px 0 0; text-align: left; line-height: 1.45;
+        }
+        .mail-ok strong { color: #065f46; }
         @media (max-width: 520px) {
             .card-inner { padding: 32px 24px; }
             h1 { font-size: 22px; }
@@ -123,6 +129,12 @@
         <a class="download-btn" href="{{ download_url }}" target="_blank" rel="noopener" download="certificado-{{ event.slug }}.pdf">
             Descargar el certificado (PDF)
         </a>
+        {% if mail_to %}
+        <div class="mail-ok">
+            {% if mail_already %}Ya te enviamos una copia a{% else %}Te enviamos una copia a{% endif %}
+            <strong>{{ mail_to }}</strong>. Si no llega en unos minutos, revisar correo no deseado.
+        </div>
+        {% endif %}
         <br>
         <button type="button" class="btn-secondary" id="share-btn"
                 data-pdf="{{ download_url }}" data-name="certificado-{{ event.slug }}.pdf"

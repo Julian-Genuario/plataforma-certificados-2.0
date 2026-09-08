@@ -110,6 +110,12 @@
             box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
         }
 
+        .check-row {
+            display: flex; gap: 10px; align-items: flex-start;
+            font-size: 14px; color: #1a1d23; margin: -8px 0 24px;
+            line-height: 1.4; cursor: pointer;
+        }
+        .check-row input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--mensaje); flex: none; }
         .submit-btn {
             width: 100%;
             padding: 16px;
@@ -230,6 +236,10 @@
                            maxlength="200">
                 </div>
             </div>
+            <label class="check-row">
+                <input type="checkbox" name="send_email" value="on" checked>
+                <span>Enviarme también una copia por email</span>
+            </label>
 
             <button type="submit" class="submit-btn">
                 Descargar certificado

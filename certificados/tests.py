@@ -1466,3 +1466,78 @@ class SendCommandTests(TestCase):
         out = StringIO()
         call_command("send_certificate_emails", max=2, stdout=out)
         self.assertIn("sent=2", out.getvalue())
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class PublicEmailOptInTests(TestCase):
+    """Opción A: casilla 'Enviarme también una copia por email' marcada por
+    defecto; encola solo para inscriptos verificados, al email de la LISTA."""
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.event = Event.objects.create(name="Vac", slug="vac", require_email=True)
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        self.att = Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        self.url = reverse("download_certificate", kwargs={"slug": "vac"})
+
+    def test_form_has_checked_checkbox(self):
+        resp = self.client.get(reverse("event_page", kwargs={"slug": "vac"}))
+        self.assertContains(resp, 'name="send_email"')
+        self.assertContains(resp, "Enviarme también una copia por email")
+        self.assertContains(resp, 'value="on" checked')
+        home = self.client.get(reverse("home"))
+        self.assertContains(home, 'name="send_email"')
+
+    def test_checked_enqueues_to_list_email_and_shows_notice(self):
+        from .models import EmailDelivery
+        resp = self.client.post(
+            self.url + "?embed=1", {"full_name": "juan perez", "email": "JUAN@mail.com", "send_email": "on"}
+        )
+        self.assertContains(resp, "Te enviamos una copia a")
+        self.assertContains(resp, "juan@mail.com")
+        d = EmailDelivery.objects.get()
+        self.assertEqual(d.to_email, "juan@mail.com")
+        self.assertEqual(d.full_name, "Juan Pérez")
+        self.assertIsNotNone(d.download_log)
+        self.assertEqual(d.status, "pending")
+
+    def test_unchecked_does_not_enqueue(self):
+        from .models import EmailDelivery
+        resp = self.client.post(self.url + "?embed=1", {"full_name": "Juan Pérez", "email": "juan@mail.com"})
+        self.assertNotContains(resp, "Te enviamos una copia")
+        self.assertEqual(EmailDelivery.objects.count(), 0)
+
+    def test_not_in_list_never_enqueues(self):
+        from .models import EmailDelivery
+        self.client.post(self.url, {"full_name": "Nadie", "email": "nadie@mail.com", "send_email": "on"})
+        self.assertEqual(EmailDelivery.objects.count(), 0)
+
+    def test_direct_flow_enqueues_too(self):
+        from .models import EmailDelivery
+        resp = self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com", "send_email": "on"})
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertEqual(EmailDelivery.objects.count(), 1)
+
+    def test_second_request_within_grace_says_already_sent(self):
+        self.client.post(self.url + "?embed=1", {"full_name": "Juan Pérez", "email": "juan@mail.com", "send_email": "on"})
+        resp = self.client.post(self.url + "?embed=1", {"full_name": "Juan Pérez", "email": "juan@mail.com", "send_email": "on"})
+        self.assertContains(resp, "Ya te enviamos una copia a")
+
+    def test_email_does_not_consume_single_use(self):
+        import re
+        resp = self.client.post(self.url + "?embed=1", {"full_name": "Juan Pérez", "email": "juan@mail.com", "send_email": "on"})
+        pdf = re.search(r'href="[^"]*(/e/vac/descargar/[^"]+/)"', resp.content.decode()).group(1)
+        self.assertEqual(self.client.get(pdf)["Content-Type"], "application/pdf")
+
+    def test_home_form_enqueues(self):
+        from .models import EmailDelivery
+        self.client.post(reverse("download_from_home"), {"event_slug": "vac", "full_name": "Juan Pérez", "email": "juan@mail.com", "send_email": "on"})
+        self.assertEqual(EmailDelivery.objects.count(), 1)
