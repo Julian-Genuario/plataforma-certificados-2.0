@@ -167,6 +167,10 @@ class DownloadLog(models.Model):
     )
     name_normalized = models.CharField(max_length=200, db_index=True, blank=True, default="")
     email_normalized = models.EmailField(db_index=True, blank=True, default="")
+    # Momento en que el PDF se ENTREGÓ de verdad (respuesta directa o primer
+    # uso del link firmado). El link es de un solo uso: con esto seteado, ni
+    # el link ni la ventana de gracia vuelven a entregar el archivo.
+    delivered_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.event.slug} - {self.name_entered}"

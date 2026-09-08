@@ -286,6 +286,7 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
 
     matched_attendee = None
     regrace = False
+    log = None
 
     if not manual:
         has_attendees = event.attendees.exists()
@@ -325,10 +326,17 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
             prior_matches = prior.filter(name_normalized=normalize_text(full_name))
         if event.download_limit and prior_matches.count() >= event.download_limit:
             last = prior_matches.order_by("-created_at").first()
-            if last and timezone.now() - last.created_at <= REDOWNLOAD_GRACE:
-                # Doble click o reintento inmediato: re-entregar el mismo
-                # certificado sin sumar un log nuevo, en vez de bloquear.
+            if (
+                last
+                and last.delivered_at is None
+                and timezone.now() - last.created_at <= REDOWNLOAD_GRACE
+            ):
+                # Reintento inmediato sin haber recibido el PDF todavía
+                # (p.ej. cerró la pantalla "Certificado listo" sin tocar el
+                # link): se vuelve a ofrecer el mismo certificado sin sumar
+                # log. Una vez ENTREGADO, no hay segunda descarga.
                 regrace = True
+                log = last
             else:
                 return _fail(event.duplicate_message or DUPLICATE_MESSAGE, "duplicate")
 
@@ -351,7 +359,7 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
     # no debe consumir el límite de descargas de la persona. Un reintento
     # dentro de la ventana de gracia tampoco suma log.
     if not regrace:
-        DownloadLog.objects.create(
+        log = DownloadLog.objects.create(
             event=event,
             name_entered=full_name,
             name_normalized=normalize_text(full_name),
@@ -366,9 +374,11 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
         # Dentro de un iframe, Safari (iPhone) bloquea la descarga adjunta
         # cross-origin: la respuesta llega y no pasa nada (visto en el testeo
         # de Brisa, 27-08). En embed se responde una pantalla intermedia con
-        # un link firmado que abre la descarga en pestaña propia.
+        # un link firmado que abre la descarga en pestaña propia. El link es
+        # de UN solo uso: apunta al log y el primer GET lo marca entregado.
         token = signing.dumps(
-            {"e": event.pk, "n": full_name}, salt=DOWNLOAD_TOKEN_SALT
+            {"e": event.pk, "n": full_name, "l": log.pk if log else None},
+            salt=DOWNLOAD_TOKEN_SALT,
         )
         download_url = request.build_absolute_uri(
             reverse("download_token", kwargs={"slug": event.slug, "token": token})
@@ -386,8 +396,37 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
             "redirect_seconds": POST_DOWNLOAD_REDIRECT_SECONDS,
         })
 
+    # Flujo directo (sin iframe): la respuesta ES la entrega.
+    if log is not None and log.delivered_at is None:
+        DownloadLog.objects.filter(pk=log.pk).update(delivered_at=timezone.now())
+
     filename = f"certificado-{event.slug}.pdf"
     return FileResponse(BytesIO(pdf_bytes), as_attachment=True, filename=filename)
+
+
+LINK_USED_MESSAGE = (
+    "El certificado ya fue descargado: el link es de un solo uso. "
+    "Buscarlo en las descargas del dispositivo."
+)
+
+
+def _claim_single_use(request, event, data):
+    """Marca entregado el log al que apunta el token; si ya estaba entregado
+    devuelve el redirect al formulario con aviso. Atómico: un UPDATE
+    condicional, así dos toques simultáneos no entregan dos veces.
+    Tokens viejos sin "l" (emitidos antes de esta regla) se dejan pasar:
+    vencen solos a la hora."""
+    log_pk = data.get("l")
+    if not log_pk:
+        return None
+    claimed = DownloadLog.objects.filter(
+        pk=log_pk, event=event, delivered_at__isnull=True
+    ).update(delivered_at=timezone.now())
+    if claimed:
+        return None
+    _log_rejected(event, request, "duplicate", name=data.get("n") or "")
+    messages.error(request, LINK_USED_MESSAGE)
+    return redirect(reverse("event_page", kwargs={"slug": event.slug}))
 
 
 def server_error(request):
@@ -468,11 +507,16 @@ def download_token(request, slug, token):
     """Descarga directa con link firmado (paso 2 del flujo embed).
 
     El POST del iframe ya validó identidad y registró la descarga; este GET
-    solo re-genera el PDF. El token vence a la hora y no suma logs, así que
-    tocarlo varias veces no gasta el cupo de nadie.
+    genera el PDF UNA sola vez: el primer toque marca el log como entregado
+    y los siguientes vuelven al formulario con aviso (pedido de Julián,
+    08-09-2026: "hace clic en descarga una vez y no lo puede descargar de
+    nuevo"). El token vence a la hora igual.
     """
     event = get_object_or_404(Event, slug=slug, active=True)
     data, bounce = _load_signed_download(request, event, token)
+    if bounce:
+        return bounce
+    bounce = _claim_single_use(request, event, data)
     if bounce:
         return bounce
     template = get_object_or_404(CertificateTemplate, event=event)

@@ -526,12 +526,17 @@ class RedownloadGraceAndEmbedFlowTests(TestCase):
         self.url = reverse("download_certificate", kwargs={"slug": self.event.slug})
         self.datos = {"full_name": "Juan Pérez", "email": "juan@mail.com"}
 
-    def test_double_click_serves_pdf_twice_and_logs_once(self):
+    def test_direct_flow_delivers_once_second_click_rejected(self):
+        # Flujo directo: la respuesta ES la entrega. Un segundo click, aun
+        # dentro de la ventana de gracia, ya no vuelve a entregar (regla
+        # "un solo uso", 08-09-2026).
         r1 = self.client.post(self.url, self.datos)
-        r2 = self.client.post(self.url, self.datos)
         self.assertEqual(r1.status_code, 200)
-        self.assertEqual(r2.status_code, 200)
-        self.assertEqual(r2["Content-Type"], "application/pdf")
+        self.assertEqual(r1["Content-Type"], "application/pdf")
+        log = DownloadLog.objects.get(event=self.event)
+        self.assertIsNotNone(log.delivered_at)
+        r2 = self.client.post(self.url, self.datos)
+        self.assertEqual(r2.status_code, 302)
         self.assertEqual(DownloadLog.objects.filter(event=self.event).count(), 1)
 
     def test_after_grace_window_duplicate_blocks_again(self):
@@ -557,8 +562,11 @@ class RedownloadGraceAndEmbedFlowTests(TestCase):
         pdf_resp = self.client.get(m.group(1))
         self.assertEqual(pdf_resp.status_code, 200)
         self.assertEqual(pdf_resp["Content-Type"], "application/pdf")
-        # Tocar el link de nuevo no suma logs ni bloquea.
-        self.client.get(m.group(1))
+        # Link de UN solo uso: el segundo toque vuelve al form con aviso y
+        # no suma logs.
+        again = self.client.get(m.group(1), follow=True)
+        self.assertEqual(again.status_code, 200)
+        self.assertContains(again, "un solo uso")
         self.assertEqual(DownloadLog.objects.filter(event=self.event).count(), 1)
 
     def test_embed_ready_page_has_image_preview_and_share_button(self):
@@ -1198,3 +1206,81 @@ class DownloadDoneScreenTests(TestCase):
         self.assertContains(resp, '<span id="countdown">%d</span>' % POST_DOWNLOAD_REDIRECT_SECONDS)
         self.assertEqual(POST_DOWNLOAD_REDIRECT_SECONDS, 15)
         self.assertEqual(POST_DOWNLOAD_REDIRECT_URL, "https://www.brisaplus.com")
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class SingleUseDownloadTests(TestCase):
+    """Regla 08-09-2026: el certificado se entrega UNA sola vez. El link
+    firmado del flujo embed muere al primer uso; la ventana de gracia solo
+    re-ofrece el certificado si todavía no se entregó."""
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.event = Event.objects.create(name="Vac", slug="vac", require_email=True, download_limit=1)
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        self.url = reverse("download_certificate", kwargs={"slug": self.event.slug}) + "?embed=1"
+        self.datos = {"full_name": "Juan Pérez", "email": "juan@mail.com"}
+
+    def _links(self, resp):
+        import re
+        html = resp.content.decode()
+        pdf = re.search(r'href="[^"]*(/e/vac/descargar/[^"]+/)"', html).group(1)
+        img = re.search(r'src="[^"]*(/e/vac/imagen/[^"]+/)"', html).group(1)
+        return pdf, img
+
+    def test_link_serves_once_then_bounces(self):
+        pdf, img = self._links(self.client.post(self.url, self.datos))
+        log = DownloadLog.objects.get()
+        self.assertIsNone(log.delivered_at)
+        self.assertEqual(self.client.get(pdf)["Content-Type"], "application/pdf")
+        log.refresh_from_db()
+        self.assertIsNotNone(log.delivered_at)
+        second = self.client.get(pdf)
+        self.assertEqual(second.status_code, 302)
+        page = self.client.get(second["Location"])
+        self.assertContains(page, "un solo uso")
+        self.assertEqual(DownloadLog.objects.count(), 1)
+        self.assertEqual(RejectedAttempt.objects.filter(reason="duplicate").count(), 1)
+
+    def test_image_preview_keeps_working_after_pdf_used(self):
+        pdf, img = self._links(self.client.post(self.url, self.datos))
+        self.client.get(pdf)
+        self.assertEqual(self.client.get(img).status_code, 200)
+        self.assertEqual(self.client.get(img).status_code, 200)
+
+    def test_grace_reoffers_only_while_not_delivered(self):
+        first = self.client.post(self.url, self.datos)
+        self.assertContains(first, "Certificado listo")
+        # Cerró la pantalla sin tocar el link: al re-enviar se le vuelve a
+        # ofrecer el mismo certificado (mismo log).
+        again = self.client.post(self.url, self.datos)
+        self.assertContains(again, "Certificado listo")
+        self.assertEqual(DownloadLog.objects.count(), 1)
+        pdf, _ = self._links(again)
+        self.assertEqual(self.client.get(pdf).status_code, 200)
+        # Ya entregado: re-enviar dentro de la gracia es duplicado.
+        third = self.client.post(self.url, self.datos)
+        self.assertEqual(third.status_code, 302)
+        self.assertEqual(DownloadLog.objects.count(), 1)
+
+    def test_legacy_token_without_log_still_serves(self):
+        from django.core import signing
+        from .views import DOWNLOAD_TOKEN_SALT
+        token = signing.dumps({"e": self.event.pk, "n": "Juan Pérez"}, salt=DOWNLOAD_TOKEN_SALT)
+        url = reverse("download_token", kwargs={"slug": "vac", "token": token})
+        self.assertEqual(self.client.get(url)["Content-Type"], "application/pdf")
+
+    def test_ready_page_no_longer_promises_reusable_link(self):
+        resp = self.client.post(self.url, self.datos)
+        self.assertNotContains(resp, "se puede tocar más de una vez")
+        self.assertContains(resp, "una sola vez")
+        self.assertNotContains(resp, "undo-done")

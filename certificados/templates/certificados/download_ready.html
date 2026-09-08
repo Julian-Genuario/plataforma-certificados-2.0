@@ -147,7 +147,8 @@
             <strong>Guardar en Archivos</strong>.
         </div>
         <div class="hint">
-            El link dura 1 hora y se puede tocar más de una vez.
+            <strong>El certificado se descarga una sola vez.</strong>
+            Guardarlo en el dispositivo apenas se abra.
         </div>
 
         <div class="back">
@@ -167,9 +168,6 @@
         <a class="download-btn" id="go-now" href="{{ redirect_url }}" target="_top" rel="noopener">
             Ir a {{ redirect_label }} ahora
         </a>
-        <div class="back">
-            <a href="#" id="undo-done">Volver a ver el certificado</a>
-        </div>
     </div>
 </div>
 
@@ -207,12 +205,6 @@
         // No se frena el click: el PDF se abre/baja igual en su pestaña.
         setTimeout(finish, 300);
     });
-    document.getElementById('undo-done').addEventListener('click', function (ev) {
-        ev.preventDefault();
-        if (timer) { clearInterval(timer); timer = null; }
-        done.hidden = true;
-        ready.hidden = false;
-    });
 })();
 </script>
 
@@ -228,9 +220,11 @@
     if (!canShareFiles) { btn.hidden = true; return; }
     hint.hidden = false;
 
-    // El PDF se baja de antemano: así share() se llama en el mismo toque
-    // (Safari exige que sea dentro del gesto del usuario).
+    // El PDF se pide recién al tocar (el link es de un solo uso: bajarlo de
+    // antemano lo gastaría). Una vez en memoria, el botón "Descargar" pasa
+    // a usar esa copia local, así sigue funcionando aunque el link ya no.
     var file = null, loading = null;
+    var pdfBtn = document.querySelector('#ready .download-btn');
     function load() {
         if (file) return Promise.resolve(file);
         if (!loading) {
@@ -238,13 +232,13 @@
                 .then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); })
                 .then(function (b) {
                     file = new File([b], btn.dataset.name, { type: 'application/pdf' });
+                    try { pdfBtn.href = URL.createObjectURL(file); } catch (e) {}
                     return file;
                 })
                 .catch(function () { loading = null; return null; });
         }
         return loading;
     }
-    load();
 
     btn.addEventListener('click', function () {
         if (file) {
@@ -262,7 +256,11 @@
             if (f) {
                 navigator.share({ files: [f], title: btn.dataset.title })
                     .then(function () { if (window.__certFinish) window.__certFinish(); })
-                    .catch(function () {});
+                    .catch(function () {
+                        // Safari puede rechazar share() fuera del gesto: el
+                        // PDF ya está en memoria, queda en el botón Descargar.
+                        hint.innerHTML = '<strong>El certificado ya está listo:</strong> tocar <strong>Descargar el certificado (PDF)</strong> para guardarlo.';
+                    });
             } else {
                 // Sin blob (red rara): abrir la descarga normal.
                 window.open(btn.dataset.pdf, '_blank');
