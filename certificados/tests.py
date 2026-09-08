@@ -1541,3 +1541,111 @@ class PublicEmailOptInTests(TestCase):
         from .models import EmailDelivery
         self.client.post(reverse("download_from_home"), {"event_slug": "vac", "full_name": "Juan Pérez", "email": "juan@mail.com", "send_email": "on"})
         self.assertEqual(EmailDelivery.objects.count(), 1)
+
+
+class PanelMailTests(TestCase):
+    def setUp(self):
+        from .models import EmailDelivery
+        self.user = User.objects.create_user("admin", password="x", is_staff=True, is_superuser=True)
+        self.client.force_login(self.user)
+        self.event = Event.objects.create(name="Vac", slug="vac")
+        self.att = Attendee.objects.create(event=self.event, full_name="Ana López", email="ana@mail.com")
+        self.d = EmailDelivery.objects.create(
+            event=self.event, attendee=self.att, to_email="ana@mail.com", full_name="Ana López",
+            status="failed", last_error="SMTP 550",
+        )
+
+    def test_list_filters_and_shows_error(self):
+        resp = self.client.get(reverse("panel_mail") + "?status=failed&search=ana")
+        self.assertContains(resp, "Ana López")
+        self.assertContains(resp, "SMTP 550")
+        self.assertNotContains(self.client.get(reverse("panel_mail") + "?status=sent"), "Ana López")
+
+    def test_resend_creates_new_and_supersedes_old(self):
+        from .models import EmailDelivery
+        self.client.post(reverse("panel_mail_resend", kwargs={"pk": self.d.pk}))
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.status, "superseded")
+        new = EmailDelivery.objects.exclude(pk=self.d.pk).get()
+        self.assertEqual(new.status, "pending")
+        self.assertEqual(new.to_email, "ana@mail.com")
+
+    def test_export_csv(self):
+        resp = self.client.get(reverse("panel_mail_export"))
+        body = b"".join(resp.streaming_content).decode("utf-8")
+        self.assertTrue(body.startswith("Evento,Nombre,Email,Estado"))
+        self.assertIn("ana@mail.com", body)
+        self.assertIn("SMTP 550", body)
+
+    def test_dashboard_shows_mail_tile(self):
+        resp = self.client.get(reverse("panel_dashboard"))
+        self.assertContains(resp, "Correos enviados")
+        self.assertContains(resp, "1 fallido")
+
+    def test_nav_has_link(self):
+        self.assertContains(self.client.get(reverse("panel_dashboard")), reverse("panel_mail"))
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class SiteSettingsMailTests(TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.user = User.objects.create_user("admin", password="x", is_staff=True, is_superuser=True)
+        self.client.force_login(self.user)
+
+    def _base(self, **extra):
+        data = {"color_fondo": "#ffffff", "color_mensaje": "#1d4ed8", "titulo": "T", "mensaje": "M",
+                "mail_from_name": "Brisa", "mail_from_email": "certificados@brisa.test",
+                "mail_reply_to": "hola@brisa.test", "mail_subject": "Certificado {evento}", "mail_body": "Hola {nombre}"}
+        data.update(extra)
+        return data
+
+    def test_saves_mail_fields(self):
+        from .models import SiteSettings
+        self.client.post(reverse("panel_site_settings"), self._base())
+        s = SiteSettings.load()
+        self.assertEqual(s.mail_from_email, "certificados@brisa.test")
+        self.assertEqual(s.mail_reply_to, "hola@brisa.test")
+        self.assertEqual(s.mail_subject, "Certificado {evento}")
+        self.assertEqual(s.mail_body, "Hola {nombre}")
+
+    def test_invalid_sender_rejected(self):
+        from .models import SiteSettings
+        resp = self.client.post(reverse("panel_site_settings"), self._base(mail_from_email="no-es-un-mail"), follow=True)
+        self.assertContains(resp, "no es válido")
+        self.assertEqual(SiteSettings.load().mail_from_email, "")
+
+    def test_empty_body_falls_back_to_default(self):
+        from .models import SiteSettings, DEFAULT_MAIL_BODY
+        self.client.post(reverse("panel_site_settings"), self._base(mail_body="", mail_subject=""))
+        s = SiteSettings.load()
+        self.assertEqual(s.mail_body, DEFAULT_MAIL_BODY)
+        self.assertEqual(s.mail_subject, "Tu certificado del {evento}")
+
+    def test_page_shows_mail_block(self):
+        resp = self.client.get(reverse("panel_site_settings"))
+        self.assertContains(resp, 'name="mail_body"')
+        self.assertContains(resp, "Enviar correo de prueba")
+
+    def test_test_mail_enqueues_to_given_address(self):
+        from .models import EmailDelivery
+        ev = Event.objects.create(name="Vac", slug="vac")
+        CertificateTemplate.objects.create(
+            event=ev, pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"), mode="coords"
+        )
+        resp = self.client.post(reverse("panel_mail_test"), {"event": ev.pk, "to": "yo@test.com"}, follow=True)
+        d = EmailDelivery.objects.get()
+        self.assertEqual(d.to_email, "yo@test.com")
+        self.assertEqual(d.full_name, "Nombre de Prueba")
+        self.assertContains(resp, "encolado")
+
+    def test_test_mail_rejects_bad_address(self):
+        from .models import EmailDelivery
+        ev = Event.objects.create(name="Vac", slug="vac")
+        resp = self.client.post(reverse("panel_mail_test"), {"event": ev.pk, "to": "nada"}, follow=True)
+        self.assertEqual(EmailDelivery.objects.count(), 0)
+        self.assertContains(resp, "email válido")

@@ -672,6 +672,9 @@
         <a href="{% url 'panel_rejected' %}" class="{% if active_page == 'rejected' %}active{% endif %}">
             <span class="nav-icon">&#9888;</span> Rechazados
         </a>
+        <a href="{% url 'panel_mail' %}" class="{% if active_page == 'mail' %}active{% endif %}">
+            <span class="nav-icon">&#9993;</span> Correos
+        </a>
 
         <div class="sidebar-section">Sistema</div>
         <a href="{% url 'panel_site_settings' %}" class="{% if active_page == 'apariencia' %}active{% endif %}">

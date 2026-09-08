@@ -53,7 +53,52 @@
             </div>
         </div>
 
+        <div class="card" style="background:#fafafa;margin:24px 0;">
+            <div class="card-title" style="margin-bottom:6px;">Correo con el certificado</div>
+            <div class="form-help" style="margin-bottom:16px;">
+                Se envía cuando la persona deja marcada "Enviarme también una copia por email". Variables: <code>{nombre}</code> y <code>{evento}</code>.
+                {% if mail_configured %}<span style="color:#047857;font-weight:600;">Servidor de correo configurado.</span>{% else %}<span style="color:#b45309;font-weight:600;">Servidor de correo SIN configurar: los correos quedan pendientes hasta cargar EMAIL_HOST en el servidor.</span>{% endif %}
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Nombre del remitente</label>
+                    <input type="text" name="mail_from_name" value="{{ site.mail_from_name }}" maxlength="120">
+                </div>
+                <div class="form-group">
+                    <label>Casilla remitente</label>
+                    <input type="email" name="mail_from_email" value="{{ site.mail_from_email }}" placeholder="vacío = la del servidor">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Responder a</label>
+                <input type="email" name="mail_reply_to" value="{{ site.mail_reply_to }}" placeholder="vacío = el remitente">
+            </div>
+            <div class="form-group">
+                <label>Asunto</label>
+                <input type="text" name="mail_subject" value="{{ site.mail_subject }}" maxlength="200">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label>Texto del correo</label>
+                <textarea name="mail_body" rows="6">{{ site.mail_body }}</textarea>
+            </div>
+        </div>
+
         <button type="submit" class="btn btn-primary">Guardar</button>
+    </form>
+</div>
+
+<div class="card" style="max-width:640px;">
+    <div class="card-header">
+        <div class="card-title">Enviar correo de prueba</div>
+    </div>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:12px;">Encola un correo con el certificado del evento elegido a nombre de "Nombre de Prueba". Sale en el próximo minuto; el estado se ve en Correos.</p>
+    <form method="post" action="{% url 'panel_mail_test' %}" class="filters">
+        {% csrf_token %}
+        <select name="event" required>
+            {% for ev in events %}<option value="{{ ev.pk }}">{{ ev.name }}</option>{% endfor %}
+        </select>
+        <input type="email" name="to" required placeholder="destinatario@correo.com" style="min-width:260px;">
+        <button type="submit" class="btn btn-primary btn-sm">Enviar prueba</button>
     </form>
 </div>
 

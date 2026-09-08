@@ -52,6 +52,10 @@ urlpatterns = [
     path("rechazados/exportar/", v.panel_rejected_export, name="panel_rejected_export"),
 
     # Apariencia / Configuración del sitio
+    path("correos/", v.panel_mail, name="panel_mail"),
+    path("correos/exportar/", v.panel_mail_export, name="panel_mail_export"),
+    path("correos/prueba/", v.panel_mail_test, name="panel_mail_test"),
+    path("correos/<int:pk>/reenviar/", v.panel_mail_resend, name="panel_mail_resend"),
     path("apariencia/", v.panel_site_settings, name="panel_site_settings"),
 
     # Users

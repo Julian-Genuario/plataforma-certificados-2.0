@@ -1,11 +1,14 @@
 import csv
+
+from django.conf import settings
 import zipfile
 from io import BytesIO, StringIO
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.validators import validate_email
 from django.db import transaction
 from django.contrib.auth.models import User
 from django.contrib import messages
@@ -29,6 +32,8 @@ from .models import (
     Attendee,
     SiteSettings,
     normalize_text,
+    EmailDelivery,
+    DEFAULT_MAIL_BODY,
 )
 from .views import build_pdf_bytes, _build_certificate_response, _get_client_ip, fit_font_size, baseline_offset
 from .attendees_io import (
@@ -90,6 +95,11 @@ def panel_dashboard(request):
         "rejected_total": t["rejected_total"],
         "rejected_today": t["rejected_today"],
         "duplicate_total": t["duplicate_total"],
+        "mail_sent": EmailDelivery.objects.filter(status=EmailDelivery.STATUS_SENT).count(),
+        "mail_failed": EmailDelivery.objects.filter(status=EmailDelivery.STATUS_FAILED).count(),
+        "mail_pending": EmailDelivery.objects.filter(
+            status__in=[EmailDelivery.STATUS_PENDING, EmailDelivery.STATUS_SENDING]
+        ).count(),
     })
 
 
@@ -911,6 +921,19 @@ def panel_site_settings(request):
         site.mensaje = (request.POST.get("mensaje") or "").strip()
         site.mantenimiento = request.POST.get("mantenimiento") == "on"
         site.mensaje_mantenimiento = (request.POST.get("mensaje_mantenimiento") or "").strip()
+        site.mail_from_name = (request.POST.get("mail_from_name") or "").strip() or "Brisa Enfermeros"
+        site.mail_from_email = (request.POST.get("mail_from_email") or "").strip()
+        site.mail_reply_to = (request.POST.get("mail_reply_to") or "").strip()
+        site.mail_subject = (request.POST.get("mail_subject") or "").strip() or "Tu certificado del {evento}"
+        site.mail_body = (request.POST.get("mail_body") or "").strip() or DEFAULT_MAIL_BODY
+        for field in ("mail_from_email", "mail_reply_to"):
+            value = getattr(site, field)
+            if value:
+                try:
+                    validate_email(value)
+                except ValidationError:
+                    messages.error(request, f"El email '{value}' no es válido.")
+                    return redirect("panel_site_settings")
         site.save()
         messages.success(request, "Configuración guardada.")
         return redirect("panel_site_settings")
@@ -923,6 +946,8 @@ def panel_site_settings(request):
         "site": site,
         "home_embed_url": home_embed_url,
         "home_public_url": home_public_url,
+        "events": Event.objects.order_by("name"),
+        "mail_configured": bool(settings.EMAIL_HOST),
     })
 
 
@@ -1257,3 +1282,120 @@ def panel_attendees_import_all(request):
         "active_page": "attendees",
         "events": events,
     })
+
+
+# ── Correos (certificado adjunto) ───────────────────────────────
+
+@login_required(login_url="panel_login")
+def panel_mail(request):
+    qs = EmailDelivery.objects.select_related("event").order_by("-created_at")
+    event_filter = request.GET.get("event") or ""
+    status = request.GET.get("status", "")
+    search = (request.GET.get("search") or "").strip()
+    if event_filter:
+        qs = qs.filter(event_id=event_filter)
+    if status:
+        qs = qs.filter(status=status)
+    if search:
+        qs = qs.filter(Q(full_name__icontains=search) | Q(to_email__icontains=search))
+
+    try:
+        page = int(request.GET.get("page", 1))
+    except (TypeError, ValueError):
+        page = 1
+    per_page = 25
+    total = qs.count()
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(max(page, 1), total_pages)
+    counts = {
+        row["status"]: row["n"]
+        for row in EmailDelivery.objects.values("status").annotate(n=Count("id"))
+    }
+    return render(request, "panel/mail.html", {
+        "active_page": "mail",
+        "items": qs[(page - 1) * per_page: page * per_page],
+        "events": Event.objects.order_by("name"),
+        "event_filter": event_filter,
+        "status": status,
+        "search": search,
+        "page": page,
+        "total_pages": total_pages,
+        "total": total,
+        "counts": counts,
+        "statuses": EmailDelivery.STATUS_CHOICES,
+    })
+
+
+@login_required(login_url="panel_login")
+@require_POST
+def panel_mail_resend(request, pk):
+    """Reenvío manual: el registro viejo queda como 'reemplazado' y se encola
+    uno nuevo al mismo email (única forma de mandar dos veces a una persona)."""
+    old = get_object_or_404(EmailDelivery, pk=pk)
+    old.status = EmailDelivery.STATUS_SUPERSEDED
+    old.save(update_fields=["status"])
+    EmailDelivery.objects.create(
+        event=old.event, attendee=old.attendee, download_log=old.download_log,
+        to_email=old.to_email, full_name=old.full_name,
+    )
+    messages.success(request, f"Reenvío encolado para {old.to_email}. Sale en el próximo minuto.")
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
+    return redirect("panel_mail")
+
+
+@login_required(login_url="panel_login")
+def panel_mail_export(request):
+    qs = EmailDelivery.objects.select_related("event").order_by("-created_at")
+    event_filter = request.GET.get("event") or ""
+    status = request.GET.get("status", "")
+    search = (request.GET.get("search") or "").strip()
+    if event_filter:
+        qs = qs.filter(event_id=event_filter)
+    if status:
+        qs = qs.filter(status=status)
+    if search:
+        qs = qs.filter(Q(full_name__icontains=search) | Q(to_email__icontains=search))
+
+    def generate():
+        buf = StringIO()
+        writer = csv.writer(buf, dialect="excel")
+        writer.writerow(["Evento", "Nombre", "Email", "Estado", "Intentos", "Creado", "Enviado", "Error"])
+        yield buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+        for d in qs.iterator():
+            writer.writerow([
+                d.event.name, d.full_name, d.to_email, d.get_status_display(), d.attempts,
+                d.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                d.sent_at.strftime("%Y-%m-%d %H:%M:%S") if d.sent_at else "",
+                d.last_error,
+            ])
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+
+    resp = StreamingHttpResponse(generate(), content_type="text/csv; charset=utf-8")
+    resp["Content-Disposition"] = 'attachment; filename="correos.csv"'
+    return resp
+
+
+@login_required(login_url="panel_login")
+@require_POST
+def panel_mail_test(request):
+    """Encola un correo de prueba (nombre ficticio) al email indicado, con el
+    template del evento elegido. Sirve para validar SMTP y diseño."""
+    event = get_object_or_404(Event, pk=request.POST.get("event"))
+    to = (request.POST.get("to") or "").strip()
+    try:
+        validate_email(to)
+    except ValidationError:
+        messages.error(request, "Ingresar un email válido para la prueba.")
+        return redirect("panel_site_settings")
+    EmailDelivery.objects.create(event=event, attendee=None, to_email=to, full_name="Nombre de Prueba")
+    messages.success(
+        request,
+        f"Correo de prueba encolado para {to}. Sale en el próximo minuto; el estado se ve en Correos.",
+    )
+    return redirect("panel_site_settings")
