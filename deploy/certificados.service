@@ -17,14 +17,27 @@ RuntimeDirectoryMode=0750
 # max-requests: cada worker se recicla solo tras ~500 requests (con jitter
 # para no reciclarse todos juntos) — seguro contra fugas de memoria lentas
 # en corridas de semanas. El reciclado es gradual, sin corte de servicio.
+# graceful-timeout: al reiniciar/recargar, un worker ocupado tiene 10 s para
+# terminar su request (el default de 30 s dejó el sitio en fallback medio
+# minuto el 09-09-2026). backlog: cola de conexiones en espera cuando todos
+# los workers están ocupados (pico de descargas), antes de que nginx vea error.
 ExecStart=/opt/certificados/.venv/bin/gunicorn \
-    --workers 9 \
+    --workers 12 \
     --timeout 120 \
+    --graceful-timeout 10 \
+    --backlog 4096 \
     --max-requests 500 \
     --max-requests-jitter 100 \
     --bind unix:/run/certificados/gunicorn.sock \
     config.wsgi:application
-Restart=on-failure
+# Deploy SIN corte: `systemctl reload certificados` manda HUP y gunicorn
+# reemplaza los workers de a uno con el código nuevo, sin cerrar el socket.
+# `restart` solo hace falta si cambió este .service o /etc/certificados.env.
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=20
+LimitNOFILE=65536
+Restart=always
 RestartSec=3
 
 [Install]

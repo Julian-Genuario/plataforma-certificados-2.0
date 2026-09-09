@@ -72,7 +72,7 @@ git archive HEAD | ssh -i ~/.ssh/hostinger_cert_vps root@179.197.65.129 \
   'tar -x -C /opt/certificados && chown -R certif:certif /opt/certificados \
    && chmod +x /opt/certificados/deploy/*.sh \
    && sudo -u certif /opt/certificados/.venv/bin/python /opt/certificados/manage.py migrate --noinput \
-   && systemctl restart certificados'
+   && systemctl reload certificados'
 ```
 
 Notas:
@@ -81,6 +81,9 @@ Notas:
   red de contención.
 - `tar -x` no borra archivos que ya no existen en git: si se elimina o renombra
   algo del repo, borrarlo a mano en el VPS.
+- `systemctl reload certificados` recarga el código SIN corte (gunicorn
+  reemplaza los workers de a uno). Usar `restart` solo si cambió
+  `deploy/certificados.service` o `/etc/certificados.env`.
 - Si se tocó un `.service`/`.timer` de `deploy/`, copiarlo a
   `/etc/systemd/system/` y hacer `systemctl daemon-reload` antes del restart.
   El envío de correos corre por `certificados-mailer.timer` (cada minuto,
