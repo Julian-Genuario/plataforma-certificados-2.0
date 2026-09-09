@@ -55,7 +55,7 @@ class DownloadFlowTests(TestCase):
     def test_first_download_succeeds(self):
         resp = self.client.post(self.url, {"full_name": "juan perez", "email": "JUAN@mail.com"})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertContains(resp, "Certificado listo")
         log = DownloadLog.objects.get()
         self.assertIsNotNone(log.attendee)
         self.assertEqual(RejectedAttempt.objects.count(), 0)
@@ -526,14 +526,19 @@ class RedownloadGraceAndEmbedFlowTests(TestCase):
         self.url = reverse("download_certificate", kwargs={"slug": self.event.slug})
         self.datos = {"full_name": "Juan Pérez", "email": "juan@mail.com"}
 
-    def test_direct_flow_delivers_once_second_click_rejected(self):
-        # Flujo directo: la respuesta ES la entrega. Un segundo click, aun
-        # dentro de la ventana de gracia, ya no vuelve a entregar (regla
-        # "un solo uso", 08-09-2026).
+    def test_direct_flow_uses_ready_page_and_single_use_link(self):
+        # Desde el 09-09 el link directo usa el mismo flujo que el iframe:
+        # pantalla "Certificado listo" + link de un solo uso. Tras entregar,
+        # un nuevo envío (aun en la gracia) es duplicado.
+        import re
         r1 = self.client.post(self.url, self.datos)
         self.assertEqual(r1.status_code, 200)
-        self.assertEqual(r1["Content-Type"], "application/pdf")
+        self.assertContains(r1, "Certificado listo")
         log = DownloadLog.objects.get(event=self.event)
+        self.assertIsNone(log.delivered_at)
+        pdf = re.search(r'href="[^"]*(/e/congreso/descargar/[^"]+/)"', r1.content.decode()).group(1)
+        self.assertEqual(self.client.get(pdf)["Content-Type"], "application/pdf")
+        log.refresh_from_db()
         self.assertIsNotNone(log.delivered_at)
         r2 = self.client.post(self.url, self.datos)
         self.assertEqual(r2.status_code, 302)
@@ -604,9 +609,11 @@ class RedownloadGraceAndEmbedFlowTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "venció")
 
-    def test_direct_non_embed_download_still_immediate(self):
+    def test_direct_non_embed_uses_ready_page_without_embed_class(self):
         resp = self.client.post(self.url, self.datos)
-        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertContains(resp, "Certificado listo")
+        self.assertNotContains(resp, 'class="embed"')
+        self.assertContains(resp, 'id="done" hidden')
 
 
 class PublicUrlTests(TestCase):
@@ -1523,7 +1530,7 @@ class PublicEmailOptInTests(TestCase):
     def test_direct_flow_enqueues_too(self):
         from .models import EmailDelivery
         resp = self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com", "send_email": "on"})
-        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertContains(resp, "Te enviamos una copia a")
         self.assertEqual(EmailDelivery.objects.count(), 1)
 
     def test_second_request_within_grace_says_already_sent(self):

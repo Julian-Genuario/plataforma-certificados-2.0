@@ -95,8 +95,12 @@ def _recover_stuck(now):
 
 
 def _sent_today(now):
+    """Enviados en el día LOCAL (America/Argentina): `sent_at__date` compara
+    en la zona horaria del proyecto, así que la fecha de referencia también
+    tiene que ser local. Con `now.date()` (UTC) el tope diario se reseteaba a
+    las 21:00 hora argentina."""
     return EmailDelivery.objects.filter(
-        status=EmailDelivery.STATUS_SENT, sent_at__date=now.date()
+        status=EmailDelivery.STATUS_SENT, sent_at__date=timezone.localdate(now)
     ).count()
 
 

@@ -386,12 +386,13 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
         )
         mail_to, mail_already = delivery.to_email, not created
 
-    if not manual and request.GET.get("embed"):
-        # Dentro de un iframe, Safari (iPhone) bloquea la descarga adjunta
-        # cross-origin: la respuesta llega y no pasa nada (visto en el testeo
-        # de Brisa, 27-08). En embed se responde una pantalla intermedia con
-        # un link firmado que abre la descarga en pestaña propia. El link es
-        # de UN solo uso: apunta al log y el primer GET lo marca entregado.
+    if not manual:
+        # Todo el flujo público pasa por la pantalla "Certificado listo" con
+        # un link firmado de UN solo uso (apunta al log; el primer GET lo
+        # marca entregado) y después "Felicitaciones". Nació para el iframe
+        # (Safari bloquea la descarga adjunta cross-origin, 27-08) y desde el
+        # 09-09 aplica también al link directo, para que la experiencia sea
+        # una sola (pedido de Julián al probar por el link directo).
         token = signing.dumps(
             {"e": event.pk, "n": full_name, "l": log.pk if log else None},
             salt=DOWNLOAD_TOKEN_SALT,
@@ -414,7 +415,7 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
             "mail_already": mail_already,
         })
 
-    # Flujo directo (sin iframe): la respuesta ES la entrega.
+    # Entrega manual desde el panel: la respuesta ES la entrega.
     if log is not None and log.delivered_at is None:
         DownloadLog.objects.filter(pk=log.pk).update(delivered_at=timezone.now())
 
