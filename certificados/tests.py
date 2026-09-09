@@ -1289,7 +1289,9 @@ class SingleUseDownloadTests(TestCase):
     def test_ready_page_no_longer_promises_reusable_link(self):
         resp = self.client.post(self.url, self.datos)
         self.assertNotContains(resp, "se puede tocar más de una vez")
-        self.assertContains(resp, "una sola vez")
+        self.assertNotContains(resp, "una sola vez")
+        self.assertContains(resp, "Nota iPhone")
+        self.assertContains(resp, 'class="files-icon"')
         self.assertNotContains(resp, "undo-done")
 
 
