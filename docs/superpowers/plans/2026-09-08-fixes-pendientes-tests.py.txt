@@ -1,0 +1,200 @@
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class EmptyListGuardTests(TestCase):
+    """Lista de inscriptos vacía: la descarga pública queda BLOQUEADA salvo
+    que el evento tenga 'Descarga libre' activada. Antes lista vacía = libre,
+    y un 'Limpiar lista' dejaba el link público regalando certificados
+    (pasó el 03-09-2026)."""
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.event = Event.objects.create(name="Vac", slug="vac", require_email=True)
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        self.url = reverse("download_certificate", kwargs={"slug": self.event.slug})
+        self.datos = {"full_name": "Cualquiera", "email": "alguien@mail.com"}
+
+    def test_empty_list_blocks_download_by_default(self):
+        resp = self.client.post(self.url, self.datos, follow=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "no está habilitada")
+        self.assertEqual(DownloadLog.objects.count(), 0)
+        self.assertEqual(RejectedAttempt.objects.get().reason, "no_list")
+
+    def test_empty_list_with_free_download_allows(self):
+        self.event.free_download = True
+        self.event.save()
+        resp = self.client.post(self.url, self.datos)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertEqual(DownloadLog.objects.count(), 1)
+
+    def test_free_download_ignores_list_when_loaded(self):
+        # Con descarga libre activada, alguien que no está en la lista igual baja.
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        self.event.free_download = True
+        self.event.save()
+        resp = self.client.post(self.url, self.datos)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+
+    def test_home_form_also_blocked(self):
+        resp = self.client.post(
+            reverse("download_from_home"), dict(self.datos, event_slug="vac"), follow=True
+        )
+        self.assertContains(resp, "no está habilitada")
+        self.assertEqual(DownloadLog.objects.count(), 0)
+
+    def test_panel_toggle_free_download(self):
+        User.objects.create_superuser("admin", "a@a.com", "pass")
+        self.client.login(username="admin", password="pass")
+        url = reverse("panel_event_edit", kwargs={"pk": self.event.pk})
+        base = {"name": "Vac", "slug": "vac", "active": "on", "require_email": "on", "download_limit": "1"}
+        self.client.post(url, dict(base, free_download="on"))
+        self.event.refresh_from_db()
+        self.assertTrue(self.event.free_download)
+        self.client.post(url, base)
+        self.event.refresh_from_db()
+        self.assertFalse(self.event.free_download)
+        resp = self.client.get(url)
+        self.assertContains(resp, 'name="free_download"')
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class AttendeeDownloadLimitTests(TestCase):
+    """Attendee.download_limit pisa el límite del evento para esa persona
+    (vacío = usa el del evento, 0 = ilimitado)."""
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.event = Event.objects.create(name="Vac", slug="vac", require_email=True, download_limit=1)
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        self.att = Attendee.objects.create(event=self.event, full_name="Juli Test", email="juli@test.com")
+        self.url = reverse("download_certificate", kwargs={"slug": self.event.slug})
+
+    def _download(self):
+        return self.client.post(self.url, {"full_name": "Juli Test", "email": "juli@test.com"})
+
+    def test_unlimited_attendee_never_blocks(self):
+        self.att.download_limit = 0
+        self.att.save()
+        for _ in range(3):
+            self.assertEqual(self._download().status_code, 200)
+            _age_logs()
+        self.assertEqual(DownloadLog.objects.count(), 3)
+        self.assertEqual(RejectedAttempt.objects.count(), 0)
+
+    def test_attendee_limit_overrides_event_limit(self):
+        self.att.download_limit = 2
+        self.att.save()
+        self.assertEqual(self._download().status_code, 200)
+        _age_logs()
+        self.assertEqual(self._download().status_code, 200)
+        _age_logs()
+        self.assertEqual(self._download().status_code, 302)
+        self.assertEqual(DownloadLog.objects.count(), 2)
+
+    def test_blank_attendee_limit_uses_event_limit(self):
+        self.assertIsNone(self.att.download_limit)
+        self.assertEqual(self._download().status_code, 200)
+        _age_logs()
+        self.assertEqual(self._download().status_code, 302)
+
+    def test_panel_sets_attendee_limit(self):
+        User.objects.create_superuser("admin", "a@a.com", "pass")
+        self.client.login(username="admin", password="pass")
+        url = reverse("panel_attendee_limit", kwargs={"event_pk": self.event.pk, "pk": self.att.pk})
+        self.client.post(url, {"download_limit": "0"})
+        self.att.refresh_from_db()
+        self.assertEqual(self.att.download_limit, 0)
+        self.client.post(url, {"download_limit": "5"})
+        self.att.refresh_from_db()
+        self.assertEqual(self.att.download_limit, 5)
+        self.client.post(url, {"download_limit": ""})
+        self.att.refresh_from_db()
+        self.assertIsNone(self.att.download_limit)
+        self.client.post(url, {"download_limit": "abc"})
+        self.att.refresh_from_db()
+        self.assertIsNone(self.att.download_limit)
+        self.att.download_limit = 0
+        self.att.save()
+        resp = self.client.get(reverse("panel_attendees", kwargs={"event_pk": self.event.pk}))
+        self.assertContains(resp, "Ilimitado")
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class ErrorKeepsFormValuesTests(TestCase):
+    """Tras un error, el formulario vuelve con nombre y email ya tipeados y el
+    mensaje visible aunque el navegador bloquee cookies (iframe en Safari):
+    el error viaja en la URL, no en la sesión."""
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.event = Event.objects.create(name="Vac", slug="vac", require_email=True)
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        self.url = reverse("download_certificate", kwargs={"slug": self.event.slug})
+
+    def test_not_in_list_redirect_carries_values_and_error(self):
+        resp = self.client.post(self.url + "?embed=1", {"full_name": "Ana López", "email": "ana@mail.com"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("embed=1", resp["Location"])
+        self.assertIn("err=not_in_list", resp["Location"])
+        # Sin cookies: la página igual muestra el error y conserva lo tipeado.
+        from django.test import Client
+        page = Client().get(resp["Location"])
+        self.assertContains(page, "No figura en la lista")
+        self.assertContains(page, 'value="Ana López"')
+        self.assertContains(page, 'value="ana@mail.com"')
+
+    def test_duplicate_error_uses_event_message_without_cookies(self):
+        self.event.duplicate_message = "Ya lo bajaste, che."
+        self.event.save()
+        self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"})
+        _age_logs()
+        resp = self.client.post(self.url, {"full_name": "Juan Pérez", "email": "juan@mail.com"})
+        from django.test import Client
+        page = Client().get(resp["Location"])
+        self.assertContains(page, "Ya lo bajaste, che.")
+
+    def test_home_error_preselects_event(self):
+        Event.objects.create(name="Otro", slug="otro")
+        resp = self.client.post(
+            reverse("download_from_home"),
+            {"event_slug": "vac", "full_name": "Ana López", "email": "ana@mail.com"},
+        )
+        from django.test import Client
+        page = Client().get(resp["Location"])
+        self.assertContains(page, "No figura en la lista")
+        self.assertContains(page, 'value="vac" selected')
+        self.assertContains(page, 'value="Ana López"')
+
+    def test_values_are_escaped(self):
+        resp = self.client.post(self.url, {"full_name": '<b>x</b>"', "email": "ana@mail.com"})
+        page = self.client.get(resp["Location"])
+        self.assertNotContains(page, "<b>x</b>")
+        self.assertContains(page, "&lt;b&gt;x&lt;/b&gt;&quot;")
