@@ -75,8 +75,13 @@ chk=$(sqlite3 "$DB" "PRAGMA quick_check;" 2>&1 | head -1)
 jm=$(sqlite3 "$DB" "PRAGMA journal_mode;" 2>&1)
 [ "$jm" = wal ] && ok "DB en modo WAL" || bad "DB journal_mode=$jm (esperaba wal)"
 
-# 9. errores de la app en la ultima hora (tracebacks reales, no SIGTERM de reinicios)
-errs=$(journalctl -u certificados --since "1 hour ago" --no-pager 2>/dev/null | grep -c -E "Traceback|Internal Server Error")
+# 9. errores de la app en la ultima hora (tracebacks reales, no SIGTERM de reinicios).
+#    Se ignoran los tracebacks del propio apagado de gunicorn (arbiter.py,
+#    "reentrant call" del logging al reaper de workers): son una carrera
+#    benigna del restart, no tocan ninguna request (visto 09-09-2026).
+errs=$(journalctl -u certificados --since "1 hour ago" --no-pager 2>/dev/null   | awk '/Traceback \(most recent call last\)/{if(blk!="" && blk !~ /arbiter\.py|reentrant call/)n++; blk="T"; next} blk!=""{blk=blk $0} END{if(blk!="" && blk !~ /arbiter\.py|reentrant call/)n++; print n+0}')
+ise=$(journalctl -u certificados --since "1 hour ago" --no-pager 2>/dev/null | grep -c "Internal Server Error")
+errs=$((errs + ise))
 [ "$errs" -eq 0 ] && ok "sin tracebacks en la ultima hora" || bad "$errs tracebacks en la ultima hora (journalctl -u certificados)"
 
 # 10. cola de correos: el timer corre bien, nada trabado ni pendiente viejo
