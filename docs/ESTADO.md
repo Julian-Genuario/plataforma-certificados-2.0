@@ -6,13 +6,14 @@ No contiene claves: las credenciales viven solo en `/etc/certificados.env` del V
 ## Producción
 
 - URL: https://srv1812254.hstgr.cloud (VPS Hostinger KVM, IP 179.197.65.129, Ubuntu 24.04).
-- Stack: Nginx → Gunicorn (9 workers, systemd `certificados`) → Django en `/opt/certificados`
+- Stack: Nginx → Gunicorn (12 workers, graceful-timeout 10 s, backlog 4096; systemd `certificados`) → Django en `/opt/certificados`
   (user `certif`), SQLite en WAL. Backups diarios 06:30 UTC en `/var/backups/certificados` (14 días).
 - Timers systemd: `certificados-watchdog` (cada 1 min), `certificados-backup` (diario),
   `certificados-mailer` (cada 1 min, envía correos pendientes).
 - Acceso: SSH como root con la clave `~/.ssh/hostinger_cert_vps` (existe solo en la PC
   original; desde otra PC hay que copiar la clave o cargar una nueva en el panel de Hostinger).
-- Deploy: one-liner del README (sección "Deploy en el VPS"). Después de CADA deploy correr
+- Deploy: one-liner del README (sección "Deploy en el VPS"): termina en `systemctl reload certificados`
+  (recarga SIN corte; `restart` solo si cambió el .service o el env). Después de CADA deploy correr
   `/opt/certificados/deploy/verificar.sh` → debe terminar en `RESULTADO: PASS`.
 - Panel: `/panel/`, usuario `admin` (contraseña la tiene Julián).
 
@@ -56,14 +57,21 @@ No contiene claves: las credenciales viven solo en `/etc/certificados.env` del V
   casilla en Panel → Apariencia. Para el congreso se recomendó Postmark (o Resend): solo
   cambia el env, no el código.
 
+## Capacidad (medido 2026-09-09)
+
+- Prueba de carga contra nginx local (script en `docs/` no; se corre con `manage.py shell`):
+  300 conexiones simultáneas, 4.500 requests mezclados (form + POST + imagen) → 458 req/s,
+  0 errores, p95 0,7 s. PDF cuesta 7 ms; el JPEG de vista previa 184 ms (es el costo
+  dominante, CPU). 20.000 personas haciendo el ciclo completo ≈ 3-4 minutos de CPU.
+- nginx: worker_connections 4096, worker_rlimit_nofile 16384, proxy_buffers 32x32k.
+- Kernel actualizado y VPS reiniciado el 09-09 (todo levanta solo, verificado).
+
 ## Pendientes (decisión de Julián, en pausa)
 
 - Guardia en "Limpiar lista": hoy lista vacía + `free_download=False` sigue siendo descarga
   libre (riesgo real; pasó el 03-09). Tests ya escritos en
   `docs/superpowers/plans/2026-09-08-fixes-pendientes-tests.py.txt` (también cubren
   `Attendee.download_limit` por inscripto y "el form conserva lo tipeado tras un error").
-- Reinicio del VPS por kernel nuevo (pendiente desde el 07-09; `reboot` es seguro, todo
-  levanta solo).
 - Borrar el repo vacío `Julian-Genuario/certificados-backups` en GitHub (quedó sin contenido).
 - Revisar los 59 sospechosos. Avisar a Brisa por el texto "en calidad de conferencista" del
   template (es su PDF).
