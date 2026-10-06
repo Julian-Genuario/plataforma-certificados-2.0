@@ -57,14 +57,26 @@ No contiene claves: las credenciales viven solo en `/etc/certificados.env` del V
   casilla en Panel → Apariencia. Para el congreso se recomendó Postmark (o Resend): solo
   cambia el env, no el código.
 
-## Capacidad (medido 2026-09-09)
+## Capacidad (medido 2026-10-06, prueba de 5.000 personas a la vez)
 
-- Prueba de carga contra nginx local (script en `docs/` no; se corre con `manage.py shell`):
-  300 conexiones simultáneas, 4.500 requests mezclados (form + POST + imagen) → 458 req/s,
-  0 errores, p95 0,7 s. PDF cuesta 7 ms; el JPEG de vista previa 184 ms (es el costo
-  dominante, CPU). 20.000 personas haciendo el ciclo completo ≈ 3-4 minutos de CPU.
-- nginx: worker_connections 4096, worker_rlimit_nofile 16384, proxy_buffers 32x32k.
-- Kernel actualizado y VPS reiniciado el 09-09 (todo levanta solo, verificado).
+- Prueba: 5.000 personas arrancando en el mismo segundo, flujo completo (formulario →
+  POST → vista previa JPEG → PDF), desde una PC en Buenos Aires contra el servidor real,
+  con 5.000 inscriptos de prueba (`@loadtest.invalid`, borrados después).
+- **Antes (commit d6afc8a): 155/5.000 completaron, 6.129 errores 502.** Causas: el watchdog
+  reinició la app en plena carga (healthz encolado >10 s), la cola del socket de gunicorn
+  (4096) y la del 443 de nginx (511) se llenaron, y la vista previa JPEG costaba ~147 ms
+  de CPU por persona.
+- **Después (commits 0188ab1 + d2e8921): 5.000/5.000, 0 errores**, ~20.000 pedidos en
+  ~60 s (~400 req/s con la CPU al 98%), mediana 52 s / p99 63 s en el peor caso de todos
+  en el mismo segundo. Watchdog sin intervenir, sin reciclado de workers.
+- Costo por persona (CPU, VPS): formulario 8 ms, POST 10 ms, vista previa 15 ms
+  (antes ~150), PDF 6 ms. Ya no hay un paso dominante.
+- Cambios: `render_certificate_jpeg` (fondo cacheado por worker + franja del nombre),
+  watchdog que no reinicia si la app usa CPU, gunicorn `--backlog 16384`
+  `--max-requests 2000`, `net.core.somaxconn=65535` (deploy/99-certificados-sysctl.conf),
+  nginx `listen 443 ssl backlog=65535`, `worker_connections 16384`,
+  `worker_rlimit_nofile 65535`. verificar.sh controla todo eso (26 controles).
+- Gráfico antes/después: `vps_antes_despues_5000.png` (Escritorio de Julián).
 
 ## Pendientes (decisión de Julián, en pausa)
 
