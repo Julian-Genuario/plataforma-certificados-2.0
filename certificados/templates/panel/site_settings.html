@@ -77,9 +77,14 @@
                 <label>Asunto</label>
                 <input type="text" name="mail_subject" value="{{ site.mail_subject }}" maxlength="200">
             </div>
-            <div class="form-group" style="margin-bottom:0;">
+            <div class="form-group">
                 <label>Texto del correo</label>
                 <textarea name="mail_body" rows="6">{{ site.mail_body }}</textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label>Casillas para modo prueba</label>
+                <textarea name="mail_test_recipients" rows="4" placeholder="una por renglón">{{ site.mail_test_recipients }}</textarea>
+                <div class="form-help">Con la sesión del panel iniciada, el formulario público funciona en modo prueba: no registra descargas y el correo va a estas casillas (con "[PRUEBA]" en el asunto) en vez de al inscripto. Vacío = en modo prueba no se manda correo.</div>
             </div>
         </div>
 

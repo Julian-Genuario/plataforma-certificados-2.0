@@ -195,6 +195,8 @@
             {{ site.mensaje|default:"Seleccionar el evento e ingresar el nombre completo y el email para descargar el certificado de participación." }}
         </div>
 
+        {% include "certificados/_test_mode_banner.html" %}
+
         {% if messages %}
             {% for message in messages %}
             <div class="alert-error">{{ message }}</div>

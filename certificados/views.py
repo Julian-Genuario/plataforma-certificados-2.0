@@ -284,8 +284,15 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
     if len(full_name) > 200:
         return HttpResponseBadRequest("Nombre demasiado largo (máx 200).")
 
+    # Modo prueba: con la sesión del panel iniciada el flujo es el mismo, pero
+    # no se registran descargas ni rechazos y el correo va a las casillas de
+    # prueba (incidente 06-10: un admin probó con los datos de una inscripta
+    # real y el certificado le llegó a ella).
+    test_mode = not manual and getattr(request, "user", None) is not None and request.user.is_authenticated
+
     def _fail(msg, reason):
-        _log_rejected(event, request, reason, name=full_name, email=email)
+        if not test_mode:
+            _log_rejected(event, request, reason, name=full_name, email=email)
         messages.error(request, msg)
         # Preservar el modo embed para que el error se renderice dentro del iframe.
         embed_qs = "?embed=1" if request.GET.get("embed") else ""
@@ -367,7 +374,9 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
     # Se registra la descarga recién acá: si la generación falla, el intento
     # no debe consumir el límite de descargas de la persona. Un reintento
     # dentro de la ventana de gracia tampoco suma log.
-    if not regrace:
+    if test_mode:
+        log = None
+    elif not regrace:
         log = DownloadLog.objects.create(
             event=event,
             name_entered=full_name,
@@ -383,11 +392,22 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
     # marcada. Se ENCOLA (nunca se envía en línea); el destinatario es el
     # email de la lista. No consume la descarga única.
     mail_to, mail_already = "", False
-    if (
+    wants_mail = (
         not manual
         and matched_attendee is not None
         and (request.POST.get("send_email") or "") == "on"
-    ):
+    )
+    if wants_mail and test_mode:
+        from .models import EmailDelivery, SiteSettings
+
+        recipients = SiteSettings.load().test_recipients()
+        for to in recipients:
+            EmailDelivery.objects.create(
+                event=event, attendee=None, to_email=to, full_name=full_name,
+                test_for_email=matched_attendee.email,
+            )
+        mail_to = ", ".join(recipients)
+    elif wants_mail:
         from .mailer import enqueue_certificate_email
 
         delivery, created = enqueue_certificate_email(
@@ -422,6 +442,8 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
             "redirect_seconds": POST_DOWNLOAD_REDIRECT_SECONDS,
             "mail_to": mail_to,
             "mail_already": mail_already,
+            "test_mode": test_mode,
+            "test_mail_requested": wants_mail,
         })
 
     # Entrega manual desde el panel: la respuesta ES la entrega.

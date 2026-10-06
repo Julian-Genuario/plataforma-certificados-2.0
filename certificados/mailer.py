@@ -67,8 +67,13 @@ def build_message(delivery, site=None):
     from_email = site.mail_from_email or settings.DEFAULT_FROM_EMAIL
     sender = f"{site.mail_from_name} <{from_email}>" if site.mail_from_name else from_email
     body = _render(site.mail_body, delivery)
+    subject = _render(site.mail_subject, delivery)
+    if delivery.test_for_email:
+        # Modo prueba: va a las casillas de prueba, marcado para no confundirlo.
+        subject = f"[PRUEBA] {subject}"
+        body = f"Correo de prueba. En un envío real habría ido a: {delivery.test_for_email}\n\n{body}"
     msg = EmailMultiAlternatives(
-        subject=_render(site.mail_subject, delivery),
+        subject=subject,
         body=body,
         from_email=sender,
         to=[delivery.to_email],

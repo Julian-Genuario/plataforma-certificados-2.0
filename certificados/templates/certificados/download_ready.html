@@ -124,6 +124,7 @@
 
 <div class="card">
     <div class="card-inner" id="ready">
+        {% include "certificados/_test_mode_banner.html" %}
         <h1>¡Certificado listo!</h1>
         <div class="subtitle">{{ event.name }}</div>
 
@@ -132,7 +133,12 @@
         <a class="download-btn" href="{{ download_url }}" target="_blank" rel="noopener" download="certificado-{{ event.slug }}.pdf">
             Descargar el certificado (PDF)
         </a>
-        {% if mail_to %}
+        {% if test_mode and test_mail_requested %}
+        <div class="mail-ok">
+            {% if mail_to %}Modo prueba: la copia se envió a las casillas de prueba: <strong>{{ mail_to }}</strong>.
+            {% else %}Modo prueba: no hay casillas de prueba cargadas (Panel → Apariencia), no se envió ningún correo.{% endif %}
+        </div>
+        {% elif mail_to %}
         <div class="mail-ok">
             {% if mail_already %}Ya te enviamos una copia a{% else %}Te enviamos una copia a{% endif %}
             <strong>{{ mail_to }}</strong>. Si no llega en unos minutos, revisar correo no deseado.

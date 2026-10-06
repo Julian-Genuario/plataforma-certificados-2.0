@@ -189,6 +189,8 @@
             {% endif %}
         </div>
 
+        {% include "certificados/_test_mode_banner.html" %}
+
         {% if messages %}
             {% for message in messages %}
             <div class="alert-error">{{ message }}</div>

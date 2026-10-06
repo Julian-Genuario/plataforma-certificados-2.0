@@ -1,3 +1,4 @@
+import re
 import unicodedata
 
 from django.db import models
@@ -92,6 +93,20 @@ class SiteSettings(models.Model):
         default=DEFAULT_MAIL_BODY,
         help_text="Texto del correo (texto plano). Variables: {nombre}, {evento}.",
     )
+    mail_test_recipients = models.TextField(
+        blank=True, default="",
+        help_text="Casillas que reciben el correo cuando el formulario se usa con la "
+                  "sesión del panel iniciada (modo prueba). Separadas por coma o renglón.",
+    )
+
+    def test_recipients(self):
+        """Casillas del modo prueba, en orden y sin repetir."""
+        out = []
+        for part in re.split(r"[\s,;]+", self.mail_test_recipients or ""):
+            part = part.strip()
+            if part and part not in out:
+                out.append(part)
+        return out
 
     class Meta:
         verbose_name = "Configuración del sitio"
@@ -331,6 +346,8 @@ class EmailDelivery(models.Model):
     download_log = models.ForeignKey(DownloadLog, null=True, blank=True, on_delete=models.SET_NULL)
     to_email = models.EmailField()
     full_name = models.CharField(max_length=200)
+    # Modo prueba: el inscripto al que habría ido el correo. Vacío = envío real.
+    test_for_email = models.EmailField(blank=True, default="")
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     attempts = models.PositiveIntegerField(default=0)
     last_error = models.TextField(blank=True, default="")

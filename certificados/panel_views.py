@@ -926,8 +926,9 @@ def panel_site_settings(request):
         site.mail_reply_to = (request.POST.get("mail_reply_to") or "").strip()
         site.mail_subject = (request.POST.get("mail_subject") or "").strip() or "Tu certificado del {evento}"
         site.mail_body = (request.POST.get("mail_body") or "").strip() or DEFAULT_MAIL_BODY
-        for field in ("mail_from_email", "mail_reply_to"):
-            value = getattr(site, field)
+        site.mail_test_recipients = (request.POST.get("mail_test_recipients") or "").strip()
+        to_check = [site.mail_from_email, site.mail_reply_to] + site.test_recipients()
+        for value in to_check:
             if value:
                 try:
                     validate_email(value)

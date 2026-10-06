@@ -1781,3 +1781,145 @@ class FastPreviewJpegTests(TestCase):
         diff = _jpeg_diff(render_certificate_jpeg(self.template, "Juan Pérez"), self._slow("Juan Pérez"))
         self.assertIsNotNone(diff)
         self.assertLess(diff, 1.0)
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class TestModeTests(TestCase):
+    """Incidente 06-10: un admin logueado probó el formulario público con los
+    datos de una inscripta real y el certificado le llegó a ella. Con sesión
+    del panel el formulario pasa a modo prueba: mismo flujo, pero no registra
+    descargas ni rechazos y el correo va a las casillas de prueba."""
+
+    def setUp(self):
+        from .models import SiteSettings
+        self.event = Event.objects.create(
+            name="Congreso", slug="congreso-prueba", require_email=True, download_limit=1
+        )
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        site = SiteSettings.load()
+        site.mail_test_recipients = "prueba1@brisa.com, prueba2@brisa.com\nprueba3@brisa.com"
+        site.save()
+        self.url = reverse("download_certificate", kwargs={"slug": self.event.slug})
+        self.datos = {"full_name": "Juan Pérez", "email": "juan@mail.com", "send_email": "on"}
+        self.admin = User.objects.create_user("admin", password="x")
+
+    def _links(self, resp):
+        import re
+        body = resp.content.decode()
+        img = re.search(r'src="[^"]*(/e/congreso-prueba/imagen/[^"]+/)"', body).group(1)
+        pdf = re.search(r'href="[^"]*(/e/congreso-prueba/descargar/[^"]+/)"', body).group(1)
+        return img, pdf
+
+    def test_logged_in_does_not_register_download(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(self.url + "?embed=1", self.datos)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Modo prueba")
+        self.assertEqual(DownloadLog.objects.count(), 0)
+
+    def test_logged_in_mail_goes_to_test_recipients_only(self):
+        from .models import EmailDelivery
+        self.client.force_login(self.admin)
+        self.client.post(self.url + "?embed=1", self.datos)
+        deliveries = EmailDelivery.objects.all()
+        self.assertEqual(
+            sorted(d.to_email for d in deliveries),
+            ["prueba1@brisa.com", "prueba2@brisa.com", "prueba3@brisa.com"],
+        )
+        for d in deliveries:
+            self.assertIsNone(d.attendee)
+            self.assertEqual(d.test_for_email, "juan@mail.com")
+            self.assertEqual(d.full_name, "Juan Pérez")
+
+    def test_logged_in_pdf_link_does_not_consume_and_repeats(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(self.url + "?embed=1", self.datos)
+        img, pdf = self._links(resp)
+        for _ in range(2):
+            r = self.client.get(pdf)
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(b"".join(r.streaming_content)[:4], b"%PDF")
+        self.assertEqual(self.client.get(img).status_code, 200)
+        self.assertEqual(DownloadLog.objects.count(), 0)
+        self.assertEqual(RejectedAttempt.objects.count(), 0)
+
+    def test_logged_in_rejection_is_not_logged(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(
+            self.url + "?embed=1", {"full_name": "X", "email": "nadie@mail.com"}, follow=True
+        )
+        self.assertContains(resp, "No figura en la lista")
+        self.assertEqual(RejectedAttempt.objects.count(), 0)
+
+    def test_real_download_after_test_still_gets_mail_and_quota(self):
+        from .models import EmailDelivery
+        self.client.force_login(self.admin)
+        self.client.post(self.url + "?embed=1", self.datos)
+        self.client.logout()
+        resp = self.client.post(self.url + "?embed=1", self.datos)
+        self.assertContains(resp, "juan@mail.com")
+        self.assertNotContains(resp, "Modo prueba")
+        self.assertEqual(DownloadLog.objects.count(), 1)
+        self.assertEqual(EmailDelivery.objects.filter(to_email="juan@mail.com").count(), 1)
+
+    def test_anonymous_flow_unchanged(self):
+        from .models import EmailDelivery
+        resp = self.client.post(self.url + "?embed=1", self.datos)
+        self.assertNotContains(resp, "Modo prueba")
+        self.assertEqual(DownloadLog.objects.count(), 1)
+        self.assertEqual(list(EmailDelivery.objects.values_list("to_email", flat=True)), ["juan@mail.com"])
+
+    def test_form_pages_show_banner_only_when_logged_in(self):
+        page = reverse("event_page", kwargs={"slug": self.event.slug})
+        self.assertNotContains(self.client.get(page), "Modo prueba")
+        self.assertNotContains(self.client.get(reverse("home")), "Modo prueba")
+        self.client.force_login(self.admin)
+        self.assertContains(self.client.get(page), "Modo prueba")
+        self.assertContains(self.client.get(reverse("home")), "Modo prueba")
+
+    def test_no_test_recipients_means_no_mail(self):
+        from .models import EmailDelivery, SiteSettings
+        site = SiteSettings.load()
+        site.mail_test_recipients = ""
+        site.save()
+        self.client.force_login(self.admin)
+        resp = self.client.post(self.url + "?embed=1", self.datos)
+        self.assertEqual(EmailDelivery.objects.count(), 0)
+        self.assertContains(resp, "no hay casillas de prueba")
+
+    def test_test_message_is_marked(self):
+        from .mailer import build_message
+        from .models import EmailDelivery
+        d = EmailDelivery.objects.create(
+            event=self.event, to_email="prueba1@brisa.com", full_name="Juan Pérez",
+            test_for_email="juan@mail.com",
+        )
+        msg = build_message(d)
+        self.assertTrue(msg.subject.startswith("[PRUEBA] "))
+        self.assertIn("En un envío real habría ido a: juan@mail.com", msg.body)
+        self.assertEqual(msg.to, ["prueba1@brisa.com"])
+
+    def test_real_message_is_not_marked(self):
+        from .mailer import build_message
+        from .models import EmailDelivery
+        d = EmailDelivery.objects.create(event=self.event, to_email="juan@mail.com", full_name="Juan Pérez")
+        msg = build_message(d)
+        self.assertFalse(msg.subject.startswith("[PRUEBA]"))
+        self.assertNotIn("envío real", msg.body)
+
+    def test_panel_saves_test_recipients_and_rejects_invalid(self):
+        from .models import SiteSettings
+        self.client.force_login(self.admin)
+        base = {"mail_from_name": "Brisa", "mail_subject": "S", "mail_body": "B"}
+        self.client.post(reverse("panel_site_settings"), {**base, "mail_test_recipients": "uno@a.com\ndos@b.com"})
+        self.assertEqual(SiteSettings.load().test_recipients(), ["uno@a.com", "dos@b.com"])
+        resp = self.client.post(
+            reverse("panel_site_settings"), {**base, "mail_test_recipients": "uno@a.com, no-es-mail"}, follow=True
+        )
+        self.assertContains(resp, "no-es-mail")
+        self.assertEqual(SiteSettings.load().test_recipients(), ["uno@a.com", "dos@b.com"])
