@@ -54,6 +54,17 @@
         </div>
 
         <div class="form-group">
+            <label style="display:flex;align-items:center;gap:12px;">
+                <span>Modo prueba</span>
+                <label class="toggle">
+                    <input type="checkbox" name="test_mode" {% if event.test_mode %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+            <div class="form-help">Para la etapa de testeo, con el mismo link o iframe: nadie descarga "de verdad" (no se registran descargas ni rechazos) y el correo va a las casillas de prueba de Apariencia, con "[PRUEBA]" en el asunto. <strong>Apagarlo antes del evento real.</strong></div>
+        </div>
+
+        <div class="form-group">
             <label>Texto informativo (bajada)</label>
             <textarea name="info_text" rows="4" placeholder="Texto que se muestra debajo del email en la página pública. Por ejemplo: 'Usá el email con el que te registraste al evento.'">{{ event.info_text|default:'' }}</textarea>
             <div class="form-help">Se muestra en la página pública del evento, debajo del último campo del formulario.</div>

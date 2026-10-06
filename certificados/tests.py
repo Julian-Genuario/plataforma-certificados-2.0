@@ -1923,3 +1923,80 @@ class TestModeTests(TestCase):
         )
         self.assertContains(resp, "no-es-mail")
         self.assertEqual(SiteSettings.load().test_recipients(), ["uno@a.com", "dos@b.com"])
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class EventTestModeToggleTests(TestCase):
+    """Tilde "Modo prueba" por evento (06-10): con el congreso en etapa de
+    testeo, el MISMO iframe de la web de testeo funciona en modo prueba para
+    cualquiera (sin sesión), sin cambiar el iframe."""
+
+    def setUp(self):
+        from .models import SiteSettings
+        self.event = Event.objects.create(
+            name="Congreso", slug="congreso-tilde", require_email=True, download_limit=1, test_mode=True
+        )
+        CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("t.pdf", _make_pdf_bytes(), content_type="application/pdf"),
+            mode="coords",
+        )
+        Attendee.objects.create(event=self.event, full_name="Juan Pérez", email="juan@mail.com")
+        site = SiteSettings.load()
+        site.mail_test_recipients = "prueba1@brisa.com\nprueba2@brisa.com"
+        site.save()
+        self.url = reverse("download_certificate", kwargs={"slug": self.event.slug})
+        self.datos = {"full_name": "Juan Pérez", "email": "juan@mail.com", "send_email": "on"}
+
+    def test_anonymous_on_test_event_is_test_mode(self):
+        from .models import EmailDelivery
+        resp = self.client.post(self.url + "?embed=1", self.datos)
+        self.assertContains(resp, "Modo prueba")
+        self.assertEqual(DownloadLog.objects.count(), 0)
+        self.assertEqual(
+            sorted(EmailDelivery.objects.values_list("to_email", flat=True)),
+            ["prueba1@brisa.com", "prueba2@brisa.com"],
+        )
+        self.assertFalse(EmailDelivery.objects.filter(to_email="juan@mail.com").exists())
+
+    def test_anonymous_rejection_on_test_event_not_logged(self):
+        self.client.post(self.url + "?embed=1", {"full_name": "X", "email": "nadie@mail.com"})
+        self.assertEqual(RejectedAttempt.objects.count(), 0)
+
+    def test_home_form_on_test_event_is_test_mode(self):
+        resp = self.client.post(
+            reverse("download_from_home") + "?embed=1", {**self.datos, "event_slug": self.event.slug}
+        )
+        self.assertContains(resp, "Modo prueba")
+        self.assertEqual(DownloadLog.objects.count(), 0)
+
+    def test_public_pages_show_banner_for_test_event(self):
+        page = reverse("event_page", kwargs={"slug": self.event.slug})
+        self.assertContains(self.client.get(page + "?embed=1"), "Modo prueba")
+        self.assertContains(self.client.get(reverse("home")), "Modo prueba")
+
+    def test_turning_off_restores_real_flow(self):
+        from .models import EmailDelivery
+        self.event.test_mode = False
+        self.event.save()
+        page = reverse("event_page", kwargs={"slug": self.event.slug})
+        self.assertNotContains(self.client.get(page), "Modo prueba")
+        resp = self.client.post(self.url + "?embed=1", self.datos)
+        self.assertNotContains(resp, "Modo prueba")
+        self.assertEqual(DownloadLog.objects.count(), 1)
+        self.assertEqual(list(EmailDelivery.objects.values_list("to_email", flat=True)), ["juan@mail.com"])
+
+    def test_panel_toggle_saves_and_panel_warns(self):
+        admin = User.objects.create_user("admin", password="x")
+        self.client.force_login(admin)
+        edit = reverse("panel_event_edit", kwargs={"pk": self.event.pk})
+        base = {"name": "Congreso", "slug": self.event.slug, "active": "on", "require_email": "on", "download_limit": "1"}
+        self.client.post(edit, base)  # sin el tilde
+        self.event.refresh_from_db()
+        self.assertFalse(self.event.test_mode)
+        self.assertNotContains(self.client.get(reverse("panel_dashboard")), "MODO PRUEBA")
+        self.client.post(edit, {**base, "test_mode": "on"})
+        self.event.refresh_from_db()
+        self.assertTrue(self.event.test_mode)
+        self.assertContains(self.client.get(reverse("panel_dashboard")), "MODO PRUEBA")
+        self.assertContains(self.client.get(edit), 'name="test_mode" checked')

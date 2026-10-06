@@ -103,5 +103,10 @@ gb=$(ss -Hlx 2>/dev/null | awk '/gunicorn\.sock/{print $4}' | head -1)
 [ "${gb:-0}" -ge 16384 ] && ok "gunicorn con cola de ${gb}" || bad "gunicorn con cola de ${gb:-?} (esperaba 16384: deploy/certificados.service)"
 grep -q "OCUPADA" /opt/certificados/deploy/watchdog.sh && ok "watchdog no reinicia bajo carga" || bad "watchdog viejo (reinicia aunque la app este ocupada)"
 
+# 12. eventos con el tilde "Modo prueba": aviso, NO falla (se usa a propósito
+#     en la etapa de testeo; hay que apagarlo antes del evento real).
+tm=$(sqlite3 "$DB" "select group_concat(name, ', ') from certificados_event where test_mode=1;" 2>/dev/null)
+[ -n "$tm" ] && printf "  AVISO MODO PRUEBA activo en: %s (descargas no se registran; correos van a casillas de prueba)\n" "$tm"
+
 echo
 if [ $fail -eq 0 ]; then echo "RESULTADO: PASS"; else echo "RESULTADO: FAIL"; exit 1; fi

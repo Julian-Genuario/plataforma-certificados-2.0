@@ -155,6 +155,12 @@ class Event(models.Model):
         help_text="Si está activado, cualquier persona puede descargar aunque "
                   "no esté en la lista de inscriptos (descarga libre).",
     )
+    test_mode = models.BooleanField(
+        default=False,
+        help_text="Modo prueba para todos: no se registran descargas ni rechazos y "
+                  "el correo va a las casillas de prueba, no al inscripto. Apagarlo "
+                  "antes del evento real.",
+    )
 
     def __str__(self):
         return self.name

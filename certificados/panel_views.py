@@ -175,6 +175,7 @@ def panel_event_form(request, pk=None):
             slug = event.slug if event else slugify(name)
         active = request.POST.get("active") == "on"
         require_email = request.POST.get("require_email") == "on"
+        test_mode = request.POST.get("test_mode") == "on"
         info_text = request.POST.get("info_text", "").strip()
         duplicate_message = request.POST.get("duplicate_message", "").strip()
         try:
@@ -196,6 +197,7 @@ def panel_event_form(request, pk=None):
             event.slug = slug
             event.active = active
             event.require_email = require_email
+            event.test_mode = test_mode
             event.info_text = info_text
             event.download_limit = download_limit
             event.duplicate_message = duplicate_message
@@ -207,6 +209,7 @@ def panel_event_form(request, pk=None):
                 slug=slug,
                 active=active,
                 require_email=require_email,
+                test_mode=test_mode,
                 info_text=info_text,
                 download_limit=download_limit,
                 duplicate_message=duplicate_message,

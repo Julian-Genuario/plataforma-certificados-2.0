@@ -1,6 +1,6 @@
-{# Modo prueba: visible solo con la sesión del panel iniciada (ver _build_certificate_response). #}
-{% if request.user.is_authenticated %}
+{# Modo prueba: con la sesión del panel iniciada o con el tilde del evento (ver _build_certificate_response). #}
+{% if request.user.is_authenticated or test_mode_banner or test_mode %}
 <div style="background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:8px;padding:10px 12px;margin-bottom:16px;font-size:13px;line-height:1.4;text-align:left;">
-    <strong>Modo prueba</strong> (sesión de administrador): no se registran descargas y el correo va a las casillas de prueba, no al inscripto.
+    <strong>Modo prueba</strong>: no se registran descargas y el correo va a las casillas de prueba, no al inscripto.
 </div>
 {% endif %}

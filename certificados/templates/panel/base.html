@@ -704,6 +704,11 @@
     </div>
 
     <div class="content">
+        {% if events_in_test_mode %}
+            <div class="alert" style="background:#fff7ed;border:1px solid #fdba74;color:#9a3412;">
+                <strong>MODO PRUEBA</strong> activo en: {{ events_in_test_mode|join:", " }}. No se registran descargas y los correos no llegan a los inscriptos. Apagarlo en Eventos → Editar antes del evento real.
+            </div>
+        {% endif %}
         {% if messages %}
             {% for message in messages %}
                 <div class="alert alert-{{ message.tags }}">{{ message }}</div>

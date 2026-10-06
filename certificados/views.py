@@ -288,7 +288,12 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
     # no se registran descargas ni rechazos y el correo va a las casillas de
     # prueba (incidente 06-10: un admin probó con los datos de una inscripta
     # real y el certificado le llegó a ella).
-    test_mode = not manual and getattr(request, "user", None) is not None and request.user.is_authenticated
+    # El tilde "Modo prueba" del evento lo activa para todos (etapa de testeo
+    # con el iframe ya publicado en la web de testeo).
+    test_mode = not manual and (
+        event.test_mode
+        or (getattr(request, "user", None) is not None and request.user.is_authenticated)
+    )
 
     def _fail(msg, reason):
         if not test_mode:
@@ -488,7 +493,10 @@ def server_error(request):
 @public_safety_net
 def home_page(request):
     events = Event.objects.filter(active=True).order_by("name")
-    return render(request, "certificados/home.html", {"events": events})
+    return render(request, "certificados/home.html", {
+        "events": events,
+        "test_mode_banner": any(e.test_mode for e in events),
+    })
 
 
 # csrf_exempt: el form público no tiene sesión ni login que proteger, y el
@@ -517,7 +525,7 @@ def download_from_home(request):
 @public_safety_net
 def event_page(request, slug):
     event = get_object_or_404(Event, slug=slug, active=True)
-    return render(request, "certificados/event_page.html", {"event": event})
+    return render(request, "certificados/event_page.html", {"event": event, "test_mode_banner": event.test_mode})
 
 
 def _load_signed_download(request, event, token):
