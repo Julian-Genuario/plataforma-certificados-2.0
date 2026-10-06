@@ -190,19 +190,13 @@ def baseline_offset(font_name, font_size, valign):
     return 0.0
 
 
-def _name_overlay_pdf(template, width, height, full_name):
-    """PDF de una página (width x height) con solo el nombre dibujado según
-    la configuración de la plantilla. Lo usan el PDF final y la vista previa
-    JPEG, así el nombre cae exactamente en el mismo lugar en los dos."""
-    packet = BytesIO()
-    c = canvas.Canvas(packet, pagesize=(width, height))
-
+def _name_layout(template, full_name):
+    """(fuente, tamaño, x, y del baseline, ancho del texto) del nombre en
+    coordenadas PDF según la configuración de la plantilla."""
     font_name = "Helvetica"
     font_size = fit_font_size(
         full_name, font_name, template.font_size, getattr(template, "max_width", 0)
     )
-    c.setFont(font_name, font_size)
-
     x = float(template.x)
     y = float(template.y)
 
@@ -217,6 +211,17 @@ def _name_overlay_pdf(template, width, height, full_name):
         draw_x = x
 
     draw_y = y - baseline_offset(font_name, font_size, getattr(template, "valign", "baseline"))
+    return font_name, font_size, draw_x, draw_y, text_width
+
+
+def _name_overlay_pdf(template, width, height, full_name):
+    """PDF de una página (width x height) con solo el nombre dibujado según
+    la configuración de la plantilla. Lo usan el PDF final y la vista previa
+    JPEG, así el nombre cae exactamente en el mismo lugar en los dos."""
+    font_name, font_size, draw_x, draw_y, _ = _name_layout(template, full_name)
+    packet = BytesIO()
+    c = canvas.Canvas(packet, pagesize=(width, height))
+    c.setFont(font_name, font_size)
     c.drawString(draw_x, draw_y, full_name)
     c.save()
     return packet.getvalue()
@@ -539,7 +544,7 @@ _NO_FAST_PATH = object()
 
 
 def _render_background(path, page_index, dpi):
-    """(fondo RGBA, ancho, alto) de la página, o _NO_FAST_PATH si la página
+    """(fondo RGB, ancho, alto) de la página, o _NO_FAST_PATH si la página
     tiene rotación, cropbox u origen raros: ahí el nombre superpuesto podría
     no coincidir con el PDF y se usa el render completo."""
     page = PdfReader(path).pages[page_index]
@@ -553,7 +558,7 @@ def _render_background(path, page_index, dpi):
     doc = pymupdf.open(path)
     try:
         pix = doc[page_index].get_pixmap(dpi=dpi, alpha=False)
-        background = Image.frombytes("RGB", (pix.width, pix.height), pix.samples).convert("RGBA")
+        background = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
     finally:
         doc.close()
     return background, float(mb.width), float(mb.height)
@@ -577,19 +582,26 @@ def render_certificate_jpeg(template, full_name):
         return render_pdf_jpeg(build_pdf_bytes(template, full_name))
 
     background, width, height = entry
-    doc = pymupdf.open(stream=_name_overlay_pdf(template, width, height, full_name), filetype="pdf")
-    try:
-        pix = doc[0].get_pixmap(dpi=PREVIEW_DPI, alpha=True)
-        # MuPDF entrega alfa premultiplicado: "RGBa" en Pillow.
-        name_layer = Image.frombytes("RGBa", (pix.width, pix.height), pix.samples).convert("RGBA")
-    finally:
-        doc.close()
-    if name_layer.size != background.size:
-        return render_pdf_jpeg(build_pdf_bytes(template, full_name))
+    # Se renderiza solo la franja donde cae el nombre (no la página entera
+    # transparente) y se pega en su lugar sobre el fondo cacheado.
+    _, font_size, draw_x, draw_y, text_width = _name_layout(template, full_name)
+    margin = font_size
+    clip = pymupdf.Rect(
+        draw_x - margin, height - (draw_y + 1.5 * font_size),
+        draw_x + text_width + margin, height - (draw_y - 0.6 * font_size),
+    ) & pymupdf.Rect(0, 0, width, height)
+    image = background.copy()
+    if not clip.is_empty:
+        doc = pymupdf.open(stream=_name_overlay_pdf(template, width, height, full_name), filetype="pdf")
+        try:
+            pix = doc[0].get_pixmap(dpi=PREVIEW_DPI, alpha=True, clip=clip)
+            # MuPDF entrega alfa premultiplicado: "RGBa" en Pillow.
+            layer = Image.frombytes("RGBa", (pix.width, pix.height), pix.samples).convert("RGBA")
+        finally:
+            doc.close()
+        image.paste(layer, (pix.x, pix.y), layer)
     out = BytesIO()
-    Image.alpha_composite(background, name_layer).convert("RGB").save(
-        out, "JPEG", quality=PREVIEW_JPEG_QUALITY
-    )
+    image.save(out, "JPEG", quality=PREVIEW_JPEG_QUALITY)
     return out.getvalue()
 
 

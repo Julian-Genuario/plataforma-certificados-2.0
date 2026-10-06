@@ -1724,6 +1724,25 @@ class FastPreviewJpegTests(TestCase):
             self.assertIsNotNone(diff, "distinto tamaño de imagen")
             self.assertLess(diff, 1.0)
 
+    def test_name_pixels_match_full_render(self):
+        # La diferencia media sobre toda la imagen esconde un corrimiento del
+        # nombre (es una franja chica): comparar solo la zona del nombre.
+        from PIL import Image, ImageChops, ImageStat
+        from .views import render_certificate_jpeg
+        for align, x, valign in (
+            ("center", 300, "baseline"), ("left", 80, "top"), ("right", 560, "middle"),
+        ):
+            self.template.align, self.template.x, self.template.valign = align, x, valign
+            self.template.save()
+            name = "Ñandú Pérez-Gómez"
+            full = Image.open(BytesIO(self._slow(name))).convert("L")
+            empty = Image.open(BytesIO(self._slow(" "))).convert("L")
+            box = ImageChops.difference(full, empty).point(lambda v: 255 if v > 40 else 0).getbbox()
+            self.assertIsNotNone(box)
+            fast = Image.open(BytesIO(render_certificate_jpeg(self.template, name))).convert("L")
+            diff = ImageStat.Stat(ImageChops.difference(full.crop(box), fast.crop(box))).mean[0]
+            self.assertLess(diff, 4.0, f"nombre corrido con align={align}")
+
     def test_name_is_actually_drawn(self):
         from .views import render_certificate_jpeg
         a = render_certificate_jpeg(self.template, "Juan Pérez")
