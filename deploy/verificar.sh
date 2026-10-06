@@ -92,5 +92,16 @@ old=$(sqlite3 "$DB" "select count(*) from certificados_emaildelivery where statu
 stuck=$(sqlite3 "$DB" "select count(*) from certificados_emaildelivery where status='sending' and started_at < datetime('now','-10 minutes');" 2>/dev/null || echo 0)
 [ "$stuck" -eq 0 ] && ok "sin correos trabados en 'sending'" || bad "$stuck correos trabados en sending"
 
+# 11. capacidad para picos (prueba de carga 06-10-2026): si alguno de estos se
+#     pierde (reinstalación, certbot reescribe el sitio), con miles de personas
+#     a la vez vuelven los 502 inmediatos.
+smc=$(sysctl -n net.core.somaxconn 2>/dev/null || echo 0)
+[ "$smc" -ge 65535 ] && ok "kernel somaxconn $smc" || bad "kernel somaxconn $smc (esperaba 65535: deploy/99-certificados-sysctl.conf)"
+bl=$(ss -Hltn 'sport = :443' 2>/dev/null | awk '{print $3}' | sort -n | head -1)
+[ "${bl:-0}" -ge 65535 ] && ok "nginx 443 con cola de ${bl}" || bad "nginx 443 con cola de ${bl:-?} (falta backlog=65535 en los listen 443)"
+gb=$(ss -Hlx 2>/dev/null | awk '/gunicorn\.sock/{print $4}' | head -1)
+[ "${gb:-0}" -ge 16384 ] && ok "gunicorn con cola de ${gb}" || bad "gunicorn con cola de ${gb:-?} (esperaba 16384: deploy/certificados.service)"
+grep -q "OCUPADA" /opt/certificados/deploy/watchdog.sh && ok "watchdog no reinicia bajo carga" || bad "watchdog viejo (reinicia aunque la app este ocupada)"
+
 echo
 if [ $fail -eq 0 ]; then echo "RESULTADO: PASS"; else echo "RESULTADO: FAIL"; exit 1; fi

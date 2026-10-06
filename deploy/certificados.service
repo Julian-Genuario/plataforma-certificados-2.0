@@ -14,20 +14,24 @@ RuntimeDirectoryMode=0750
 # 9 workers: el VPS tiene 8 núcleos y 31GB; con 3, un pico de descargas
 # (26k inscriptos tras un mail de "bajá tu certificado") saturaba la cola
 # y nginx devolvía la página de "servicio no disponible".
-# max-requests: cada worker se recicla solo tras ~500 requests (con jitter
+# max-requests: cada worker se recicla solo tras ~2000 requests (con jitter
 # para no reciclarse todos juntos) — seguro contra fugas de memoria lentas
-# en corridas de semanas. El reciclado es gradual, sin corte de servicio.
+# en corridas de semanas. Con 500, en la prueba de carga del 06-10 los 12
+# workers se reciclaron a la vez a los 15 s de pico (cada arranque cuesta CPU).
 # graceful-timeout: al reiniciar/recargar, un worker ocupado tiene 10 s para
 # terminar su request (el default de 30 s dejó el sitio en fallback medio
 # minuto el 09-09-2026). backlog: cola de conexiones en espera cuando todos
 # los workers están ocupados (pico de descargas), antes de que nginx vea error.
+# Con 4096 la cola se llenó en la prueba de 5.000 personas (06-10-2026) y
+# nginx devolvió ~1.300 502 al instante; 16384 necesita net.core.somaxconn
+# alto (deploy/99-certificados-sysctl.conf), si no el kernel lo recorta.
 ExecStart=/opt/certificados/.venv/bin/gunicorn \
     --workers 12 \
     --timeout 120 \
     --graceful-timeout 10 \
-    --backlog 4096 \
-    --max-requests 500 \
-    --max-requests-jitter 100 \
+    --backlog 16384 \
+    --max-requests 2000 \
+    --max-requests-jitter 400 \
     --bind unix:/run/certificados/gunicorn.sock \
     config.wsgi:application
 # Deploy SIN corte: `systemctl reload certificados` manda HUP y gunicorn

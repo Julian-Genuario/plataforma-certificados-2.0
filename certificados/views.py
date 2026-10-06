@@ -1,5 +1,6 @@
 import ipaddress
 import logging
+import os
 from datetime import timedelta
 from functools import wraps
 from io import BytesIO
@@ -15,6 +16,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 
 import pymupdf
+from PIL import Image
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
@@ -188,6 +190,38 @@ def baseline_offset(font_name, font_size, valign):
     return 0.0
 
 
+def _name_overlay_pdf(template, width, height, full_name):
+    """PDF de una página (width x height) con solo el nombre dibujado según
+    la configuración de la plantilla. Lo usan el PDF final y la vista previa
+    JPEG, así el nombre cae exactamente en el mismo lugar en los dos."""
+    packet = BytesIO()
+    c = canvas.Canvas(packet, pagesize=(width, height))
+
+    font_name = "Helvetica"
+    font_size = fit_font_size(
+        full_name, font_name, template.font_size, getattr(template, "max_width", 0)
+    )
+    c.setFont(font_name, font_size)
+
+    x = float(template.x)
+    y = float(template.y)
+
+    align = (template.align or "center").lower()
+    text_width = pdfmetrics.stringWidth(full_name, font_name, font_size)
+
+    if align == "center":
+        draw_x = x - (text_width / 2.0)
+    elif align == "right":
+        draw_x = x - text_width
+    else:
+        draw_x = x
+
+    draw_y = y - baseline_offset(font_name, font_size, getattr(template, "valign", "baseline"))
+    c.drawString(draw_x, draw_y, full_name)
+    c.save()
+    return packet.getvalue()
+
+
 def build_pdf_bytes(template, full_name):
     """Generate the certificate PDF bytes for the given template + name.
 
@@ -204,38 +238,8 @@ def build_pdf_bytes(template, full_name):
         if i == page_index:
             width = float(page.mediabox.width)
             height = float(page.mediabox.height)
-
-            packet = BytesIO()
-            c = canvas.Canvas(packet, pagesize=(width, height))
-
-            font_name = "Helvetica"
-            font_size = fit_font_size(
-                full_name, font_name, template.font_size, getattr(template, "max_width", 0)
-            )
-            c.setFont(font_name, font_size)
-
-            x = float(template.x)
-            y = float(template.y)
-
-            align = (template.align or "center").lower()
-            text_width = pdfmetrics.stringWidth(full_name, font_name, font_size)
-
-            if align == "center":
-                draw_x = x - (text_width / 2.0)
-            elif align == "right":
-                draw_x = x - text_width
-            else:
-                draw_x = x
-
-            draw_y = y - baseline_offset(font_name, font_size, getattr(template, "valign", "baseline"))
-            c.drawString(draw_x, draw_y, full_name)
-            c.save()
-
-            packet.seek(0)
-            overlay_pdf = PdfReader(packet)
-            overlay_page = overlay_pdf.pages[0]
-
-            page.merge_page(overlay_page)
+            overlay_pdf = PdfReader(BytesIO(_name_overlay_pdf(template, width, height, full_name)))
+            page.merge_page(overlay_pdf.pages[0])
 
         writer.add_page(page)
 
@@ -509,7 +513,11 @@ def _load_signed_download(request, event, token):
     return data, None
 
 
-def render_pdf_jpeg(pdf_bytes, dpi=120, quality=85):
+PREVIEW_DPI = 120
+PREVIEW_JPEG_QUALITY = 85
+
+
+def render_pdf_jpeg(pdf_bytes, dpi=PREVIEW_DPI, quality=PREVIEW_JPEG_QUALITY):
     """Primera página del PDF como JPEG (para ver/guardar el certificado
     como imagen en el celular)."""
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
@@ -518,6 +526,71 @@ def render_pdf_jpeg(pdf_bytes, dpi=120, quality=85):
         return pix.tobytes("jpeg", jpg_quality=quality)
     finally:
         doc.close()
+
+
+# Fondo de la plantilla ya rasterizado, por worker. Prueba de carga 06-10:
+# re-renderizar la plantilla entera para cada vista previa (~180 ms de CPU)
+# saturaba los 8 núcleos con 5.000 personas a la vez; dibujar solo el nombre
+# sobre el fondo cacheado cuesta ~10 ms. La clave incluye archivo y mtime:
+# subir una plantilla nueva invalida solo.
+_BACKGROUND_CACHE = {}
+_BACKGROUND_CACHE_MAX = 8
+_NO_FAST_PATH = object()
+
+
+def _render_background(path, page_index, dpi):
+    """(fondo RGBA, ancho, alto) de la página, o _NO_FAST_PATH si la página
+    tiene rotación, cropbox u origen raros: ahí el nombre superpuesto podría
+    no coincidir con el PDF y se usa el render completo."""
+    page = PdfReader(path).pages[page_index]
+    mb, cb = page.mediabox, page.cropbox
+    if (
+        page.rotation % 360
+        or float(mb.left) or float(mb.bottom)
+        or [float(v) for v in cb] != [float(v) for v in mb]
+    ):
+        return _NO_FAST_PATH
+    doc = pymupdf.open(path)
+    try:
+        pix = doc[page_index].get_pixmap(dpi=dpi, alpha=False)
+        background = Image.frombytes("RGB", (pix.width, pix.height), pix.samples).convert("RGBA")
+    finally:
+        doc.close()
+    return background, float(mb.width), float(mb.height)
+
+
+def render_certificate_jpeg(template, full_name):
+    """Vista previa JPEG del certificado: igual a render_pdf_jpeg(build_pdf_bytes())
+    pero sin re-renderizar el fondo de la plantilla en cada pedido."""
+    path = template.pdf.path
+    page_index = template.page_number
+    key = (template.pk, path, os.path.getmtime(path), page_index, PREVIEW_DPI)
+    entry = _BACKGROUND_CACHE.get(key)
+    if entry is None:
+        if page_index >= len(PdfReader(path).pages):
+            raise ValueError("page_number inválido para este PDF.")
+        entry = _render_background(path, page_index, PREVIEW_DPI)
+        if len(_BACKGROUND_CACHE) >= _BACKGROUND_CACHE_MAX:
+            _BACKGROUND_CACHE.pop(next(iter(_BACKGROUND_CACHE)))
+        _BACKGROUND_CACHE[key] = entry
+    if entry is _NO_FAST_PATH:
+        return render_pdf_jpeg(build_pdf_bytes(template, full_name))
+
+    background, width, height = entry
+    doc = pymupdf.open(stream=_name_overlay_pdf(template, width, height, full_name), filetype="pdf")
+    try:
+        pix = doc[0].get_pixmap(dpi=PREVIEW_DPI, alpha=True)
+        # MuPDF entrega alfa premultiplicado: "RGBa" en Pillow.
+        name_layer = Image.frombytes("RGBa", (pix.width, pix.height), pix.samples).convert("RGBA")
+    finally:
+        doc.close()
+    if name_layer.size != background.size:
+        return render_pdf_jpeg(build_pdf_bytes(template, full_name))
+    out = BytesIO()
+    Image.alpha_composite(background, name_layer).convert("RGB").save(
+        out, "JPEG", quality=PREVIEW_JPEG_QUALITY
+    )
+    return out.getvalue()
 
 
 @xframe_options_exempt
@@ -554,8 +627,7 @@ def download_image_token(request, slug, token):
     if bounce:
         return bounce
     template = get_object_or_404(CertificateTemplate, event=event)
-    pdf_bytes = build_pdf_bytes(template, data.get("n") or "")
-    jpeg = render_pdf_jpeg(pdf_bytes)
+    jpeg = render_certificate_jpeg(template, data.get("n") or "")
     resp = HttpResponse(jpeg, content_type="image/jpeg")
     resp["Content-Disposition"] = f'inline; filename="certificado-{event.slug}.jpg"'
     resp["Cache-Control"] = "private, max-age=3600"

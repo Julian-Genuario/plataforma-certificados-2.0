@@ -1658,3 +1658,107 @@ class SiteSettingsMailTests(TestCase):
         resp = self.client.post(reverse("panel_mail_test"), {"event": ev.pk, "to": "nada"}, follow=True)
         self.assertEqual(EmailDelivery.objects.count(), 0)
         self.assertContains(resp, "email válido")
+
+
+def _make_background_pdf_bytes(rotate=0, color=(0.2, 0.4, 0.8)):
+    """Plantilla con fondo de color y texto: si el render rápido se corre de
+    lugar o pierde el fondo, la diferencia de píxeles lo delata."""
+    from pypdf import PdfReader, PdfWriter
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=(600, 400))
+    c.setFillColorRGB(*color)
+    c.rect(0, 0, 600, 400, fill=1, stroke=0)
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(50, 50, 500, 300, fill=1, stroke=0)
+    c.setFillColorRGB(0, 0, 0)
+    c.drawString(60, 330, "CERTIFICADO DE PRUEBA")
+    c.save()
+    if not rotate:
+        return buf.getvalue()
+    reader = PdfReader(BytesIO(buf.getvalue()))
+    writer = PdfWriter()
+    page = reader.pages[0]
+    page.rotate(rotate)
+    writer.add_page(page)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _jpeg_diff(a_bytes, b_bytes):
+    from PIL import Image, ImageChops, ImageStat
+    a = Image.open(BytesIO(a_bytes)).convert("L")
+    b = Image.open(BytesIO(b_bytes)).convert("L")
+    if a.size != b.size:
+        return None
+    return ImageStat.Stat(ImageChops.difference(a, b)).mean[0]
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class FastPreviewJpegTests(TestCase):
+    """Prueba de carga 06-10: el JPEG de vista previa (re-renderizar la
+    plantilla entera por persona) saturaba la CPU. Ahora el fondo se rasteriza
+    una vez y por persona solo se dibuja el nombre encima; tiene que verse
+    igual que el render completo."""
+
+    def setUp(self):
+        from . import views
+        views._BACKGROUND_CACHE.clear()
+        self.event = Event.objects.create(name="Congreso", slug="congreso-jpeg")
+        self.template = CertificateTemplate.objects.create(
+            event=self.event,
+            pdf=SimpleUploadedFile("fondo.pdf", _make_background_pdf_bytes(), content_type="application/pdf"),
+            mode="coords", x=300, y=200, font_size=28, align="center",
+        )
+
+    def _slow(self, name):
+        from .views import build_pdf_bytes, render_pdf_jpeg
+        return render_pdf_jpeg(build_pdf_bytes(self.template, name))
+
+    def test_matches_full_render(self):
+        from .views import render_certificate_jpeg
+        for name in ["Juan Pérez", "María José Fernández Gutiérrez de la Santísima Trinidad"]:
+            fast = render_certificate_jpeg(self.template, name)
+            self.assertEqual(fast[:2], bytes([0xFF, 0xD8]))
+            diff = _jpeg_diff(fast, self._slow(name))
+            self.assertIsNotNone(diff, "distinto tamaño de imagen")
+            self.assertLess(diff, 1.0)
+
+    def test_name_is_actually_drawn(self):
+        from .views import render_certificate_jpeg
+        a = render_certificate_jpeg(self.template, "Juan Pérez")
+        b = render_certificate_jpeg(self.template, "Otra Persona Distinta")
+        self.assertGreater(_jpeg_diff(a, b), 0.05)
+
+    def test_background_rendered_once(self):
+        from . import views
+        calls = []
+        original = views._render_background
+        views._render_background = lambda *a, **k: calls.append(1) or original(*a, **k)
+        try:
+            for name in ["Uno", "Dos", "Tres"]:
+                views.render_certificate_jpeg(self.template, name)
+        finally:
+            views._render_background = original
+        self.assertEqual(len(calls), 1)
+
+    def test_new_template_file_invalidates_cache(self):
+        from .views import render_certificate_jpeg
+        before = render_certificate_jpeg(self.template, "Juan Pérez")
+        self.template.pdf = SimpleUploadedFile(
+            "fondo2.pdf", _make_background_pdf_bytes(color=(0.9, 0.1, 0.1)), content_type="application/pdf"
+        )
+        self.template.save()
+        after = render_certificate_jpeg(self.template, "Juan Pérez")
+        self.assertGreater(_jpeg_diff(before, after), 1.0)
+        self.assertLess(_jpeg_diff(after, self._slow("Juan Pérez")), 1.0)
+
+    def test_rotated_page_falls_back_to_full_render(self):
+        from .views import render_certificate_jpeg
+        self.template.pdf = SimpleUploadedFile(
+            "rotada.pdf", _make_background_pdf_bytes(rotate=90), content_type="application/pdf"
+        )
+        self.template.save()
+        diff = _jpeg_diff(render_certificate_jpeg(self.template, "Juan Pérez"), self._slow("Juan Pérez"))
+        self.assertIsNotNone(diff)
+        self.assertLess(diff, 1.0)
