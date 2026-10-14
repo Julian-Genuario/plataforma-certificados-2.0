@@ -18,8 +18,15 @@ done
 # 2. health y pagina publica por HTTPS (mismo camino que un usuario)
 code=$(curl -s -o /dev/null -m 10 -w "%{http_code}" --resolve "$HOST:443:127.0.0.1" "https://$HOST/healthz")
 [ "$code" = 200 ] && ok "/healthz 200" || bad "/healthz devolvio $code"
-code=$(curl -s -o /dev/null -m 10 -w "%{http_code}" --resolve "$HOST:443:127.0.0.1" "https://$HOST/e/congreso-test/")
-[ "$code" = 200 ] && ok "pagina del evento 200" || bad "pagina del evento devolvio $code"
+code=$(curl -s -o /dev/null -m 10 -w "%{http_code}" --resolve "$HOST:443:127.0.0.1" "https://$HOST/")
+[ "$code" = 200 ] && ok "pagina de inicio 200" || bad "pagina de inicio devolvio $code"
+# Cada evento ACTIVO (los deshabilitados dan 404 a proposito).
+slugs=$(sqlite3 "$DB" "select slug from certificados_event where active=1;" 2>/dev/null)
+[ -n "$slugs" ] || bad "no hay ningun evento activo"
+for s in $slugs; do
+  code=$(curl -s -o /dev/null -m 10 -w "%{http_code}" --resolve "$HOST:443:127.0.0.1" "https://$HOST/e/$s/")
+  [ "$code" = 200 ] && ok "pagina del evento $s 200" || bad "pagina del evento $s devolvio $code"
+done
 # 2b. por IPv6 e IPv4 PUBLICAS (el DNS publica AAAA: si nginx no escucha en
 #     IPv6, los iPhones en redes v6 ven el iframe en blanco y no dejan log —
 #     paso el 01-09-2026). Se resuelve contra 1.1.1.1 porque /etc/hosts del
