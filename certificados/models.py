@@ -161,6 +161,11 @@ class Event(models.Model):
                   "el correo va a las casillas de prueba, no al inscripto. Apagarlo "
                   "antes del evento real.",
     )
+    listed = models.BooleanField(
+        default=True,
+        help_text="Si está apagado, el evento no aparece en el selector de la "
+                  "página de inicio: solo se llega por su link o iframe propio.",
+    )
 
     def __str__(self):
         return self.name

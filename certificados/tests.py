@@ -2000,3 +2000,35 @@ class EventTestModeToggleTests(TestCase):
         self.assertTrue(self.event.test_mode)
         self.assertContains(self.client.get(reverse("panel_dashboard")), "MODO PRUEBA")
         self.assertContains(self.client.get(edit), 'name="test_mode" checked')
+
+
+class UnlistedEventTests(TestCase):
+    """Evento oculto: no sale en el selector de inicio pero anda por su link."""
+
+    def setUp(self):
+        self.visible = Event.objects.create(name="Congreso Visible", slug="visible")
+        self.oculto = Event.objects.create(name="Congreso Oculto", slug="oculto", listed=False)
+
+    def test_home_lists_only_listed_events(self):
+        resp = self.client.get(reverse("home") + "?embed=1")
+        self.assertContains(resp, "Congreso Visible")
+        self.assertNotContains(resp, "Congreso Oculto")
+
+    def test_unlisted_event_page_works(self):
+        resp = self.client.get(reverse("event_page", kwargs={"slug": "oculto"}) + "?embed=1")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Congreso Oculto")
+
+    def test_existing_events_stay_listed_by_default(self):
+        self.assertTrue(self.visible.listed)
+
+    def test_panel_toggle_saves(self):
+        User.objects.create_user("admin", password="x")
+        self.client.login(username="admin", password="x")
+        url = reverse("panel_event_edit", kwargs={"pk": self.visible.pk})
+        self.client.post(url, {"name": "Congreso Visible", "slug": "visible", "active": "on"})
+        self.visible.refresh_from_db()
+        self.assertFalse(self.visible.listed)
+        self.client.post(url, {"name": "Congreso Visible", "slug": "visible", "active": "on", "listed": "on"})
+        self.visible.refresh_from_db()
+        self.assertTrue(self.visible.listed)

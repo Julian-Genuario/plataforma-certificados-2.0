@@ -55,6 +55,17 @@
 
         <div class="form-group">
             <label style="display:flex;align-items:center;gap:12px;">
+                <span>Mostrar en el selector de inicio</span>
+                <label class="toggle">
+                    <input type="checkbox" name="listed" {% if event.listed or not event %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+            <div class="form-help">Si lo apagás, el evento no aparece en la lista de congresos de la página de inicio (ni en su iframe): solo funciona con su propio link o iframe.</div>
+        </div>
+
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:12px;">
                 <span>Modo prueba</span>
                 <label class="toggle">
                     <input type="checkbox" name="test_mode" {% if event.test_mode %}checked{% endif %}>

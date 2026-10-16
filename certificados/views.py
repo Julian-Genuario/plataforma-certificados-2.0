@@ -492,7 +492,7 @@ def server_error(request):
 @xframe_options_exempt
 @public_safety_net
 def home_page(request):
-    events = Event.objects.filter(active=True).order_by("name")
+    events = Event.objects.filter(active=True, listed=True).order_by("name")
     return render(request, "certificados/home.html", {
         "events": events,
         "test_mode_banner": any(e.test_mode for e in events),
