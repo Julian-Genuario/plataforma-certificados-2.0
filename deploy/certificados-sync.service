@@ -6,6 +6,8 @@ After=network.target
 Type=oneshot
 User=certif
 Group=www-data
+# El export lo deja notif-pagos en un directorio del grupo certif.
+SupplementaryGroups=certif
 WorkingDirectory=/opt/certificados
 EnvironmentFile=/etc/certificados.env
 ExecStart=/opt/certificados/.venv/bin/python /opt/certificados/manage.py sync_brisa_inscriptos
