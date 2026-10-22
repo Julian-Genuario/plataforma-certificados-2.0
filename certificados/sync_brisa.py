@@ -1,6 +1,7 @@
 """Alta automática de inscriptos desde el export de usuarios de brisaplus.
 
-notif-pagos baja el "EXPORTAR INSCRIPTOS" del back de Brisa+ cada 30 min y lo
+notif-pagos baja el "EXPORTAR INSCRIPTOS" del back de Brisa+ (cada 30 min, solo si
+entraron pagos de suscripción) y lo
 deja en un archivo (BRISA_EXPORT_PATH). Acá se lee ese archivo y se AGREGAN a
 los eventos configurados (BRISA_SYNC_EVENTS, slugs separados por coma) los
 usuarios con "Activado Suscripción = SI" que todavía no están en la lista.

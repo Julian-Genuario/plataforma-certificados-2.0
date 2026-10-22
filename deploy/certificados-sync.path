@@ -1,0 +1,9 @@
+[Unit]
+Description=Cuando notif-pagos deja un export nuevo de brisaplus: agregar los nuevos suscriptos
+
+[Path]
+PathChanged=/var/lib/brisa-export/inscriptos.html
+Unit=certificados-sync.service
+
+[Install]
+WantedBy=multi-user.target

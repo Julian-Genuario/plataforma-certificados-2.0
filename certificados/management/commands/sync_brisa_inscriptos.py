@@ -1,6 +1,7 @@
 """Agrega a los eventos configurados los nuevos suscriptos de brisaplus.
 
-Lo lanza el timer systemd `certificados-sync.timer` cada 30 minutos. Solo
+Lo lanza `certificados-sync.path` cada vez que notif-pagos deja un export nuevo
+(cada 30 min y solo si entraron pagos de suscripción). Solo
 agrega (nunca borra); ver certificados/sync_brisa.py.
 """
 import sys
