@@ -182,3 +182,9 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "ce
 MAIL_RATE_PER_MINUTE = int(os.environ.get("MAIL_RATE_PER_MINUTE", "30"))
 MAIL_DAILY_CAP = int(os.environ.get("MAIL_DAILY_CAP", "450"))  # 0 = sin tope
 MAIL_STUCK_MINUTES = 10
+
+# Alta automática de inscriptos desde el export de brisaplus (ver certificados/sync_brisa.py).
+BRISA_EXPORT_PATH = os.environ.get("BRISA_EXPORT_PATH", "/var/lib/brisa-export/inscriptos.html")
+BRISA_SYNC_EVENTS = [s.strip() for s in os.environ.get("BRISA_SYNC_EVENTS", "").split(",") if s.strip()]
+BRISA_EXPORT_MAX_AGE_MIN = int(os.environ.get("BRISA_EXPORT_MAX_AGE_MIN", "120"))
+BRISA_SYNC_MAX_ALTAS = int(os.environ.get("BRISA_SYNC_MAX_ALTAS", "300"))  # 0 = sin tope

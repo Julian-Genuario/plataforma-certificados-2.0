@@ -2032,3 +2032,87 @@ class UnlistedEventTests(TestCase):
         self.client.post(url, {"name": "Congreso Visible", "slug": "visible", "active": "on", "listed": "on"})
         self.visible.refresh_from_db()
         self.assertTrue(self.visible.listed)
+
+
+class SyncBrisaInscriptosTests(TestCase):
+    """Alta automática desde el export de brisaplus: solo agrega, nunca borra."""
+
+    CABECERA = "<tr><th>Nombre</th><th>Apellido</th><th>Email</th><th>Activado Suscripción</th></tr>"
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
+        self.path = f"{self.dir}/inscriptos.html"
+        self.a = Event.objects.create(name="Congreso A", slug="congreso-a")
+        self.b = Event.objects.create(name="Congreso B", slug="congreso-b")
+        Attendee.objects.create(event=self.a, full_name="Ana Vieja", email="ana@x.com")
+
+    def escribir(self, filas, cabecera=None):
+        cuerpo = "".join(f"<tr>{''.join(f'<td>{c}</td>' for c in f)}</tr>" for f in filas)
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write(f"<html><body><table>{cabecera or self.CABECERA}{cuerpo}</table></body></html>")
+
+    def correr(self, **kw):
+        from .sync_brisa import sincronizar
+        with self.settings(BRISA_EXPORT_MAX_AGE_MIN=120, BRISA_SYNC_MAX_ALTAS=300):
+            return sincronizar(path=self.path, slugs=["congreso-a", "congreso-b"], **kw)
+
+    def test_agrega_solo_activos_y_no_duplica(self):
+        self.escribir([
+            ["Ana", "Vieja", "ANA@x.com", "SI"],
+            ["Beto", "Nuevo", "beto@x.com", "SI"],
+            ["Caro", "Inactiva", "caro@x.com", "NO"],
+        ])
+        r = self.correr()
+        self.assertEqual(r, {"congreso-a": (1, 0), "congreso-b": (2, 0)})
+        self.assertEqual(self.a.attendees.count(), 2)
+        self.assertFalse(Attendee.objects.filter(email_normalized="caro@x.com").exists())
+        # Segunda pasada con el mismo export: no agrega nada.
+        self.assertEqual(self.correr(), {"congreso-a": (0, 0), "congreso-b": (0, 0)})
+
+    def test_nunca_borra_a_quien_ya_no_figura(self):
+        self.escribir([["Beto", "Nuevo", "beto@x.com", "SI"]])
+        self.correr()
+        self.assertTrue(self.a.attendees.filter(email_normalized="ana@x.com").exists())
+
+    def test_nombre_sospechoso_va_a_revision(self):
+        self.escribir([["test", "test", "t@x.com", "SI"]])
+        self.assertEqual(self.correr()["congreso-a"], (0, 1))
+        self.assertEqual(self.a.suspicious_attendees.count(), 1)
+        self.assertEqual(self.correr()["congreso-a"], (0, 0))
+
+    def test_prueba_no_escribe(self):
+        self.escribir([["Beto", "Nuevo", "beto@x.com", "SI"]])
+        self.assertEqual(self.correr(dry_run=True)["congreso-a"], (1, 0))
+        self.assertEqual(self.a.attendees.count(), 1)
+
+    def test_sin_columna_de_suscripcion_no_agrega(self):
+        from .sync_brisa import SyncError
+        self.escribir([["Beto", "Nuevo", "beto@x.com"]], cabecera="<tr><th>Nombre</th><th>Apellido</th><th>Email</th></tr>")
+        with self.assertRaises(SyncError):
+            self.correr()
+        self.assertEqual(Attendee.objects.count(), 1)
+
+    def test_export_viejo_no_se_usa(self):
+        import os
+        from .sync_brisa import SyncError
+        self.escribir([["Beto", "Nuevo", "beto@x.com", "SI"]])
+        hace_3h = os.path.getmtime(self.path) - 3 * 3600
+        os.utime(self.path, (hace_3h, hace_3h))
+        with self.assertRaises(SyncError):
+            self.correr()
+
+    def test_demasiadas_altas_no_toca_ningun_evento(self):
+        from .sync_brisa import sincronizar, SyncError
+        self.escribir([[f"Persona{chr(65 + i % 26)}", "Nueva", f"p{i}@x.com", "SI"] for i in range(5)])
+        with self.settings(BRISA_EXPORT_MAX_AGE_MIN=120, BRISA_SYNC_MAX_ALTAS=3):
+            with self.assertRaises(SyncError):
+                sincronizar(path=self.path, slugs=["congreso-a", "congreso-b"])
+        self.assertEqual(Attendee.objects.count(), 1)
+
+    def test_evento_inexistente_corta(self):
+        from .sync_brisa import sincronizar, SyncError
+        self.escribir([["Beto", "Nuevo", "beto@x.com", "SI"]])
+        with self.assertRaises(SyncError):
+            sincronizar(path=self.path, slugs=["congreso-a", "no-existe"])
+        self.assertEqual(Attendee.objects.count(), 1)
