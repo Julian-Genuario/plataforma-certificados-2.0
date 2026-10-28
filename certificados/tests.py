@@ -1860,6 +1860,7 @@ class TestModeTests(TestCase):
         with self.settings(BRISA_SYNC_EVENTS=[self.event.slug]):
             resp = self.client.post(self.url, {"full_name": "X", "email": "nadie@mail.com"}, follow=True)
         self.assertContains(resp, "volvé a intentar en 30 minutos")
+        self.assertContains(resp, "tenés que estar suscripto a Brisa+")
         resp = self.client.post(self.url, {"full_name": "X", "email": "nadie@mail.com"}, follow=True)
         self.assertContains(resp, "Verificar los datos ingresados")
         self.assertNotContains(resp, "30 minutos")

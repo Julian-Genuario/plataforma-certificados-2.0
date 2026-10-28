@@ -329,7 +329,8 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
                 # tardan en sumar a quien acaba de pagar (ver sync_brisa).
                 if event.slug in settings.BRISA_SYNC_EVENTS:
                     msg = (
-                        "No figura en la lista de inscriptos. Usá el mismo email con el que te "
+                        "No figura en la lista de inscriptos. Recordá que para descargar tu "
+                        "certificado tenés que estar suscripto a Brisa+. Usá el mismo email con el que te "
                         "registraste en Brisa+. Si pagaste tu suscripción hace un momento, volvé "
                         "a intentar en 30 minutos."
                     )
