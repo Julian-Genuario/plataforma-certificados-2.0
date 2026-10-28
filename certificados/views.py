@@ -5,6 +5,7 @@ from datetime import timedelta
 from functools import wraps
 from io import BytesIO
 
+from django.conf import settings
 from django.contrib import messages
 from django.core import signing
 from django.utils import timezone
@@ -323,10 +324,16 @@ def _build_certificate_response(event, full_name, request, manual=False, email="
             else:
                 matched_attendee = _find_attendee_by_email(event, email)
             if matched_attendee is None:
-                return _fail(
-                    "No figura en la lista de inscriptos. Verificar los datos ingresados.",
-                    "not_in_list",
-                )
+                msg = "No figura en la lista de inscriptos. Verificar los datos ingresados."
+                # Los eventos que se llenan solos con los suscriptos de Brisa+
+                # tardan en sumar a quien acaba de pagar (ver sync_brisa).
+                if event.slug in settings.BRISA_SYNC_EVENTS:
+                    msg = (
+                        "No figura en la lista de inscriptos. Usá el mismo email con el que te "
+                        "registraste en Brisa+. Si pagaste tu suscripción hace un momento, volvé "
+                        "a intentar en 30 minutos."
+                    )
+                return _fail(msg, "not_in_list")
             full_name = matched_attendee.full_name
 
         # Bloqueo por límite de descargas: ¿cuántas veces descargó ya esta persona?

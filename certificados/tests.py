@@ -1856,6 +1856,14 @@ class TestModeTests(TestCase):
         self.assertContains(resp, "No figura en la lista")
         self.assertEqual(RejectedAttempt.objects.count(), 0)
 
+    def test_rejection_in_synced_event_suggests_retry(self):
+        with self.settings(BRISA_SYNC_EVENTS=[self.event.slug]):
+            resp = self.client.post(self.url, {"full_name": "X", "email": "nadie@mail.com"}, follow=True)
+        self.assertContains(resp, "volvé a intentar en 30 minutos")
+        resp = self.client.post(self.url, {"full_name": "X", "email": "nadie@mail.com"}, follow=True)
+        self.assertContains(resp, "Verificar los datos ingresados")
+        self.assertNotContains(resp, "30 minutos")
+
     def test_real_download_after_test_still_gets_mail_and_quota(self):
         from .models import EmailDelivery
         self.client.force_login(self.admin)
